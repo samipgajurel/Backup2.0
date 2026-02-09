@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Supervisor - Reports</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="app">
+  <div id="navbar"></div>
+  <div class="content">
+    <div class="tile">
+      <div class="row">
+        <div>
+          <h2 style="margin:0">Intern Reports</h2>
+          <p class="help" style="margin-top:6px">Task reports submitted by your interns.</p>
+        </div>
+        <button class="btn-inline" id="refreshBtn" type="button">Refresh</button>
+      </div>
+
+      <div id="msg" class="msg"></div>
+      <div class="hr"></div>
+
+      <div class="field">
+        <label>Filter</label>
+        <input id="search" type="text" placeholder="intern / task / text..." />
+      </div>
+
+      <div class="help" id="countText" style="margin-top:10px">Loading…</div>
+      <div id="list" class="help" style="margin-top:10px"></div>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  initTheme(); renderNavbar();
+  const user=requireAuthOrRedirect();
+  if(user.role!=="SUPERVISOR") window.location.href="dashboard.html";
+
+  const msg=document.getElementById("msg");
+  const refreshBtn=document.getElementById("refreshBtn");
+  const search=document.getElementById("search");
+  const countText=document.getElementById("countText");
+  const list=document.getElementById("list");
+  let rows=[];
+
+  function showMsg(el,t,type="ok"){ el.classList.add("show"); el.classList.remove("ok","err"); el.classList.add(type==="ok"?"ok":"err"); el.textContent=t; }
+  function hideMsg(el){ el.classList.remove("show"); el.textContent=""; }
+
+  function render(){
+    const q=search.value.trim().toLowerCase();
+    const filtered=rows.filter(r =>
+      (r.intern_email||"").toLowerCase().includes(q) ||
+      (r.task_title||"").toLowerCase().includes(q) ||
+      (r.content||"").toLowerCase().includes(q)
+    );
+    countText.textContent=`Showing ${filtered.length} / ${rows.length}`;
+    list.innerHTML="";
+    if(!filtered.length){ list.innerHTML="<i>No reports</i>"; return; }
+
+    filtered.forEach(r=>{
+      const div=document.createElement("div");
+      div.style.borderBottom="1px solid var(--border)";
+      div.style.padding="10px 0";
+      div.innerHTML=`
+        <b>Task:</b> ${r.task_title} <span style="color:var(--muted)">(#${r.task_id})</span><br/>
+        <span style="color:var(--muted)">Intern:</span> ${r.intern_email}<br/>
+        <div style="margin-top:6px; white-space:pre-wrap">${r.content}</div>
+        <div style="color:var(--muted); margin-top:6px">${r.created_at}</div>
+      `;
+      list.appendChild(div);
+    });
+  }
+
+  async function load(){
+    hideMsg(msg);
+    countText.textContent="Loading…"; list.innerHTML="";
+    try{
+      const res=await apiFetch("/internships/supervisor/reports/",{method:"GET"});
+      const data=await res.json().catch(()=>[]);
+      if(!res.ok){ showMsg(msg, data.detail||"Failed", "err"); countText.textContent="Failed."; return; }
+      rows = Array.isArray(data) ? data : [];
+      render();
+    }catch{ showMsg(msg,"Network error","err"); countText.textContent="Network error."; }
+  }
+
+  refreshBtn.addEventListener("click", load);
+  search.addEventListener("input", render);
+  load();
+</script>
+</body>
+</html>

@@ -1,0 +1,323 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin - Monthly Reports</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <div id="navbar"></div>
+
+    <div class="content">
+      <!-- Header card -->
+      <div class="tile">
+        <div class="row">
+          <div>
+            <h2 style="margin:0">Monthly Reports</h2>
+            <p class="help" style="margin-top:6px">Summary + per-intern breakdown. Export CSV/PDF anytime.</p>
+          </div>
+          <div class="row" style="gap:10px">
+            <button class="btn-inline" id="exportBtn" type="button">Export CSV</button>
+            <button class="btn-inline" id="exportPdfBtn" type="button">Export PDF</button>
+            <button class="btn-inline" id="refreshBtn" type="button">Refresh</button>
+          </div>
+        </div>
+
+        <div style="height:10px"></div>
+
+        <div class="row" style="justify-content:flex-start; gap:12px">
+          <div class="field" style="max-width:180px; width:100%">
+            <label for="year">Year</label>
+            <select id="year"></select>
+          </div>
+
+          <div class="field" style="max-width:180px; width:100%">
+            <label for="month">Month</label>
+            <select id="month"></select>
+          </div>
+        </div>
+
+        <div id="msg" class="msg" style="margin-top:10px"></div>
+      </div>
+
+      <!-- Summary -->
+      <div class="tile" style="margin-top:12px">
+        <h2 style="margin:0 0 10px 0">Summary</h2>
+        <div class="kpis" id="summaryBox"></div>
+      </div>
+
+      <!-- Per intern -->
+      <div class="tile" style="margin-top:12px">
+        <h2 style="margin:0 0 10px 0">Per Intern</h2>
+
+        <div style="overflow:auto; border:1px solid var(--border); border-radius:14px">
+          <table style="width:100%; border-collapse:collapse; min-width:900px">
+            <thead>
+              <tr style="text-align:left">
+                <th style="padding:12px; border-bottom:1px solid var(--border)">Intern</th>
+                <th style="padding:12px; border-bottom:1px solid var(--border)">Email</th>
+                <th style="padding:12px; border-bottom:1px solid var(--border)">Tasks Created</th>
+                <th style="padding:12px; border-bottom:1px solid var(--border)">Tasks Completed</th>
+                <th style="padding:12px; border-bottom:1px solid var(--border)">Attendance</th>
+                <th style="padding:12px; border-bottom:1px solid var(--border)">Reports</th>
+                <th style="padding:12px; border-bottom:1px solid var(--border)">Complaints</th>
+              </tr>
+            </thead>
+            <tbody id="tbody">
+              <tr><td colspan="7" style="padding:12px">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/theme.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/navbar.js"></script>
+
+  <script>
+    // ----- boot -----
+    initTheme();
+    requireAuthOrRedirect();
+    requireRole("ADMIN");
+    renderNavbar();
+    window.logout = logout; // ensure navbar logout works
+
+    const yearSel = document.getElementById("year");
+    const monthSel = document.getElementById("month");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const exportBtn = document.getElementById("exportBtn");
+    const exportPdfBtn = document.getElementById("exportPdfBtn");
+    const msg = document.getElementById("msg");
+    const summaryBox = document.getElementById("summaryBox");
+    const tbody = document.getElementById("tbody");
+
+    // ✅ REAL endpoints from your Django URL list
+    const CSV_ENDPOINT = "/internships/admin/reports/monthly/csv/";
+    const PDF_ENDPOINT = "/internships/admin/reports/monthly/pdf/";
+
+    function showMsg(text, type="") {
+      msg.className = "msg show" + (type ? " " + type : "");
+      msg.textContent = text;
+    }
+    function hideMsg() {
+      msg.className = "msg";
+      msg.textContent = "";
+    }
+
+    function kpi(label, value) {
+      const d = document.createElement("div");
+      d.className = "kpi";
+      d.innerHTML = `<div class="label">${label}</div><div class="value">${value}</div>`;
+      return d;
+    }
+
+    function fillYearMonth() {
+      // Year dropdown
+      const now = new Date();
+      const thisYear = now.getFullYear();
+
+      const years = [];
+      for (let y = thisYear - 3; y <= thisYear + 1; y++) years.push(y);
+
+      yearSel.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join("");
+      yearSel.value = String(thisYear);
+
+      // Month dropdown (1-12)
+      const monthNames = [
+        "January","February","March","April","May","June",
+        "July","August","September","October","November","December"
+      ];
+      monthSel.innerHTML = monthNames.map((name, idx) => {
+        const m = idx + 1;
+        return `<option value="${m}">${name}</option>`;
+      }).join("");
+
+      // default current month
+      monthSel.value = String(now.getMonth() + 1);
+    }
+
+    function qs() {
+      const y = Number(yearSel.value);
+      const m = Number(monthSel.value);
+      const p = new URLSearchParams();
+      p.set("year", String(y));
+      p.set("month", String(m));
+      return "?" + p.toString();
+    }
+
+    // Robust CSV parser (handles quotes/commas)
+    function parseCSV(text) {
+      const rows = [];
+      let cur = [];
+      let val = "";
+      let inQuotes = false;
+
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        const next = text[i + 1];
+
+        if (c === '"' && inQuotes && next === '"') {
+          val += '"'; i++;
+          continue;
+        }
+        if (c === '"') {
+          inQuotes = !inQuotes;
+          continue;
+        }
+        if (c === "," && !inQuotes) {
+          cur.push(val); val = "";
+          continue;
+        }
+        if ((c === "\n" || c === "\r") && !inQuotes) {
+          if (c === "\r" && next === "\n") i++;
+          cur.push(val); val = "";
+          if (cur.length > 1 || cur[0] !== "") rows.push(cur);
+          cur = [];
+          continue;
+        }
+        val += c;
+      }
+      cur.push(val);
+      if (cur.length > 1 || cur[0] !== "") rows.push(cur);
+
+      if (!rows.length) return { headers: [], data: [] };
+
+      const headers = rows[0].map(h => (h || "").trim());
+      const data = rows.slice(1).map(r => {
+        const obj = {};
+        headers.forEach((h, idx) => obj[h] = (r[idx] ?? "").trim());
+        return obj;
+      });
+
+      return { headers, data };
+    }
+
+    function toNum(x) {
+      const n = Number(String(x ?? "").replace(/[^0-9.-]/g, ""));
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function renderFromRows(rows) {
+      // Try to map common header names (your backend may vary)
+      // We'll accept flexible CSV headers
+      const pick = (obj, keys) => {
+        for (const k of keys) {
+          const found = Object.keys(obj).find(h => h.toLowerCase() === k.toLowerCase());
+          if (found) return obj[found];
+        }
+        return "";
+      };
+
+      // Build normalized list
+      const items = rows.map(r => ({
+        intern: pick(r, ["Intern", "Name", "Full Name", "intern", "full_name"]),
+        email: pick(r, ["Email", "email"]),
+        tasks_created: toNum(pick(r, ["Tasks Created", "tasks_created", "tasks"])),
+        tasks_completed: toNum(pick(r, ["Tasks Completed", "tasks_completed", "completed"])),
+        attendance: toNum(pick(r, ["Attendance", "attendance"])),
+        reports: toNum(pick(r, ["Reports", "reports"])),
+        complaints: toNum(pick(r, ["Complaints", "complaints"]))
+      })).filter(x => x.intern || x.email); // remove blank rows
+
+      // Totals summary
+      const totals = items.reduce((a, x) => ({
+        interns: a.interns + 1,
+        tasks_created: a.tasks_created + x.tasks_created,
+        tasks_completed: a.tasks_completed + x.tasks_completed,
+        attendance: a.attendance + x.attendance,
+        reports: a.reports + x.reports,
+        complaints: a.complaints + x.complaints
+      }), { interns:0, tasks_created:0, tasks_completed:0, attendance:0, reports:0, complaints:0 });
+
+      summaryBox.innerHTML = "";
+      summaryBox.appendChild(kpi("Interns", totals.interns));
+      summaryBox.appendChild(kpi("Tasks Created", totals.tasks_created));
+      summaryBox.appendChild(kpi("Tasks Completed", totals.tasks_completed));
+      summaryBox.appendChild(kpi("Attendance", totals.attendance));
+      summaryBox.appendChild(kpi("Reports", totals.reports));
+      summaryBox.appendChild(kpi("Complaints", totals.complaints));
+
+      if (!items.length) {
+        tbody.innerHTML = `<tr><td colspan="7" style="padding:12px">No rows found in CSV for this month.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = items.map(x => `
+        <tr>
+          <td style="padding:12px; border-bottom:1px solid var(--border)">${x.intern || "-"}</td>
+          <td style="padding:12px; border-bottom:1px solid var(--border)">${x.email || "-"}</td>
+          <td style="padding:12px; border-bottom:1px solid var(--border)">${x.tasks_created}</td>
+          <td style="padding:12px; border-bottom:1px solid var(--border)">${x.tasks_completed}</td>
+          <td style="padding:12px; border-bottom:1px solid var(--border)">${x.attendance}</td>
+          <td style="padding:12px; border-bottom:1px solid var(--border)">${x.reports}</td>
+          <td style="padding:12px; border-bottom:1px solid var(--border)">${x.complaints}</td>
+        </tr>
+      `).join("");
+    }
+
+    async function loadReports() {
+      hideMsg();
+      summaryBox.innerHTML = "";
+      tbody.innerHTML = `<tr><td colspan="7" style="padding:12px">Loading…</td></tr>`;
+
+      try {
+        const res = await apiFetch(CSV_ENDPOINT + qs(), { method: "GET" });
+
+        const csvText = await res.text();
+
+        if (!res.ok) {
+          console.log("monthly csv error", res.status, csvText);
+          showMsg(`Failed to load reports (${res.status}).`, "err");
+          tbody.innerHTML = `<tr><td colspan="7" style="padding:12px">Failed</td></tr>`;
+          return;
+        }
+
+        if (!csvText.trim()) {
+          showMsg("CSV returned empty response.", "err");
+          tbody.innerHTML = `<tr><td colspan="7" style="padding:12px">Empty CSV</td></tr>`;
+          return;
+        }
+
+        const parsed = parseCSV(csvText);
+
+        if (!parsed.data.length) {
+          showMsg("No rows found in CSV for this month.", "err");
+          tbody.innerHTML = `<tr><td colspan="7" style="padding:12px">No data</td></tr>`;
+          return;
+        }
+
+        renderFromRows(parsed.data);
+        showMsg("Loaded ✅", "ok");
+
+      } catch (e) {
+        console.error(e);
+        showMsg("Network error: backend not reachable.", "err");
+        tbody.innerHTML = `<tr><td colspan="7" style="padding:12px">Network error</td></tr>`;
+      }
+    }
+
+    function exportCSV() {
+      window.open(`http://127.0.0.1:8000/api${CSV_ENDPOINT}${qs()}`, "_blank");
+    }
+    function exportPDF() {
+      window.open(`http://127.0.0.1:8000/api${PDF_ENDPOINT}${qs()}`, "_blank");
+    }
+
+    refreshBtn.addEventListener("click", loadReports);
+    exportBtn.addEventListener("click", exportCSV);
+    exportPdfBtn.addEventListener("click", exportPDF);
+
+    yearSel.addEventListener("change", loadReports);
+    monthSel.addEventListener("change", loadReports);
+
+    fillYearMonth();
+    loadReports();
+  </script>
+</body>
+</html>

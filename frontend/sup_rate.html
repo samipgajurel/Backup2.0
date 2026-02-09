@@ -1,0 +1,56 @@
+<!doctype html><html><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Supervisor - Star Rating</title><link rel="stylesheet" href="css/style.css"/>
+</head><body>
+<script src="js/theme.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/navbar.js"></script>
+<script>requireRole("SUPERVISOR"); renderNavbar();</script>
+
+<div class="container">
+  <div class="card">
+    <h2>Give Progress (Star Rating) + Feedback</h2>
+
+    <label>Select Task</label>
+    <select id="taskSelect"></select>
+
+    <label>Stars (1-5)</label>
+    <input id="stars" type="number" min="1" max="5" value="5"/>
+
+    <label>Feedback</label>
+    <textarea id="feedback"></textarea>
+
+    <div style="height:10px"></div>
+    <button class="btn primary" onclick="rate()">Submit</button>
+    <p id="msg" class="helper"></p>
+  </div>
+</div>
+
+<script>
+let tasks = [];
+async function loadTasks(){
+  const res = await apiFetch("/internships/supervisor/tasks/", {method:"GET"});
+  tasks = await res.json().catch(()=>[]);
+  if(!res.ok) return setMsg("Failed to load tasks", true);
+
+  taskSelect.innerHTML = tasks.map(t=>`<option value="${t.id}">${t.id} - ${escapeHtml(t.title)} (${escapeHtml(t.intern_email)})</option>`).join("");
+}
+
+async function rate(){
+  const id = taskSelect.value;
+  const res = await apiFetch(`/internships/supervisor/tasks/${id}/rate/`, {
+    method:"POST",
+    body: { star_rating: Number(stars.value), supervisor_feedback: feedback.value.trim() }
+  });
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok) return setMsg(data.detail||"Failed", true);
+  setMsg("Saved ✅");
+  feedback.value="";
+}
+
+function setMsg(t,bad=false){ msg.className=bad?"helper bad":"helper ok"; msg.innerText=t; }
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[m])); }
+loadTasks();
+</script>
+</body></html>

@@ -1,0 +1,105 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Intern - Task Status</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="app">
+  <div id="navbar"></div>
+  <div class="content">
+    <div class="tile">
+      <h2>Update Task Status</h2>
+      <p class="help">Pick a task and set status: DONE / IN_PROGRESS / COMPLETED</p>
+
+      <div id="msg" class="msg"></div>
+      <div class="hr"></div>
+
+      <div class="field">
+        <label>Task</label>
+        <select id="taskSelect"></select>
+      </div>
+
+      <div class="field">
+        <label>Status</label>
+        <select id="statusSelect">
+          <option value="DONE">DONE</option>
+          <option value="IN_PROGRESS">IN_PROGRESS</option>
+          <option value="COMPLETED">COMPLETED</option>
+        </select>
+      </div>
+
+      <button class="btn" id="saveBtn" type="button" style="max-width:220px">Update</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  initTheme(); renderNavbar();
+  const user=requireAuthOrRedirect();
+  if(user.role!=="INTERN") window.location.href="dashboard.html";
+
+  const msg=document.getElementById("msg");
+  const taskSelect=document.getElementById("taskSelect");
+  const statusSelect=document.getElementById("statusSelect");
+  const saveBtn=document.getElementById("saveBtn");
+  let tasks=[];
+
+  function showMsg(el,t,type="ok"){ el.classList.add("show"); el.classList.remove("ok","err"); el.classList.add(type==="ok"?"ok":"err"); el.textContent=t; }
+  function hideMsg(el){ el.classList.remove("show"); el.textContent=""; }
+
+  async function loadTasks(){
+    const res=await apiFetch("/internships/intern/tasks/",{method:"GET"});
+    const data=await res.json().catch(()=>[]);
+    if(!res.ok) throw new Error(data.detail||"Failed to load tasks");
+    tasks=Array.isArray(data)?data:[];
+    taskSelect.innerHTML="";
+    tasks.forEach(t=>{
+      const opt=document.createElement("option");
+      opt.value=t.id;
+      opt.textContent=`#${t.id} - ${t.title} (${t.status})`;
+      taskSelect.appendChild(opt);
+    });
+    const first=tasks[0];
+    if(first) statusSelect.value=first.status;
+  }
+
+  taskSelect.addEventListener("change", ()=>{
+    const id=parseInt(taskSelect.value,10);
+    const t=tasks.find(x=>x.id===id);
+    if(t) statusSelect.value=t.status;
+  });
+
+  saveBtn.addEventListener("click", async ()=>{
+    hideMsg(msg);
+    const id=parseInt(taskSelect.value,10);
+    const status=statusSelect.value;
+    if(!id){ showMsg(msg,"Select a task","err"); return; }
+
+    saveBtn.disabled=true;
+    try{
+      const res=await apiFetch(`/internships/intern/tasks/${id}/status/`,{
+        method:"POST",
+        body: JSON.stringify({ status })
+      });
+      const data=await res.json().catch(()=> ({}));
+      if(!res.ok){ showMsg(msg, data.detail||"Update failed","err"); return; }
+      showMsg(msg,"Updated ✅","ok");
+      await loadTasks();
+    }catch{ showMsg(msg,"Network error","err"); }
+    finally{ saveBtn.disabled=false; }
+  });
+
+  (async()=>{
+    try{ await loadTasks(); }
+    catch(e){ showMsg(msg,e.message,"err"); }
+  })();
+</script>
+</body>
+</html>

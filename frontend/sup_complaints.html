@@ -1,0 +1,127 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Supervisor - Complaints</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="app">
+  <div id="navbar"></div>
+  <div class="content">
+    <div class="tile">
+      <div class="row">
+        <div>
+          <h2 style="margin:0">Complaints Management</h2>
+          <p class="help" style="margin-top:6px">Update status for complaints filed by interns.</p>
+        </div>
+        <button class="btn-inline" id="refreshBtn" type="button">Refresh</button>
+      </div>
+
+      <div id="msg" class="msg"></div>
+      <div class="hr"></div>
+
+      <div class="field">
+        <label>Filter</label>
+        <input id="search" type="text" placeholder="intern / subject / status..." />
+      </div>
+
+      <div class="help" id="countText" style="margin-top:10px">Loading…</div>
+      <div id="list" class="help" style="margin-top:10px"></div>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  initTheme(); renderNavbar();
+  const user=requireAuthOrRedirect();
+  if(user.role!=="SUPERVISOR") window.location.href="dashboard.html";
+
+  const msg=document.getElementById("msg");
+  const refreshBtn=document.getElementById("refreshBtn");
+  const search=document.getElementById("search");
+  const countText=document.getElementById("countText");
+  const list=document.getElementById("list");
+  let rows=[];
+
+  function showMsg(el,t,type="ok"){ el.classList.add("show"); el.classList.remove("ok","err"); el.classList.add(type==="ok"?"ok":"err"); el.textContent=t; }
+  function hideMsg(el){ el.classList.remove("show"); el.textContent=""; }
+
+  function render(){
+    const q=search.value.trim().toLowerCase();
+    const filtered=rows.filter(c =>
+      (c.subject||"").toLowerCase().includes(q) ||
+      (c.status||"").toLowerCase().includes(q) ||
+      (c.intern||"").toLowerCase().includes(q)
+    );
+    countText.textContent=`Showing ${filtered.length} / ${rows.length}`;
+    list.innerHTML="";
+    if(!filtered.length){ list.innerHTML="<i>No complaints</i>"; return; }
+
+    filtered.forEach(c=>{
+      const div=document.createElement("div");
+      div.style.borderBottom="1px solid var(--border)";
+      div.style.padding="10px 0";
+
+      const selId=`status_${c.id}`;
+      div.innerHTML=`
+        <b>${c.subject}</b> <span style="color:var(--muted)">(${c.status})</span><br/>
+        <span style="color:var(--muted)">Intern:</span> ${c.intern}<br/>
+        <span style="color:var(--muted)">${c.created_at}</span><br/>
+        <div class="row" style="margin-top:8px">
+          <select id="${selId}">
+            <option value="OPEN">OPEN</option>
+            <option value="IN_REVIEW">IN_REVIEW</option>
+            <option value="RESOLVED">RESOLVED</option>
+          </select>
+          <button class="btn-inline" type="button" data-id="${c.id}">Update</button>
+        </div>
+      `;
+      list.appendChild(div);
+      // set current
+      div.querySelector(`#${selId}`).value = c.status;
+
+      div.querySelector("button").addEventListener("click", async ()=>{
+        const newStatus = div.querySelector(`#${selId}`).value;
+        await updateStatus(c.id, newStatus);
+      });
+    });
+  }
+
+  async function updateStatus(id, status){
+    hideMsg(msg);
+    try{
+      const res=await apiFetch(`/internships/supervisor/complaints/${id}/status/`,{
+        method:"POST",
+        body: JSON.stringify({ status })
+      });
+      const data=await res.json().catch(()=> ({}));
+      if(!res.ok){ showMsg(msg, data.detail||"Update failed","err"); return; }
+      showMsg(msg,"Status updated ✅","ok");
+      load();
+    }catch{ showMsg(msg,"Network error","err"); }
+  }
+
+  async function load(){
+    hideMsg(msg);
+    countText.textContent="Loading…"; list.innerHTML="";
+    try{
+      const res=await apiFetch("/internships/supervisor/complaints/",{method:"GET"});
+      const data=await res.json().catch(()=>[]);
+      if(!res.ok){ showMsg(msg, data.detail||"Failed","err"); countText.textContent="Failed."; return; }
+      rows=Array.isArray(data)?data:[];
+      render();
+    }catch{ showMsg(msg,"Network error","err"); countText.textContent="Network error."; }
+  }
+
+  refreshBtn.addEventListener("click", load);
+  search.addEventListener("input", render);
+  load();
+</script>
+</body>
+</html>

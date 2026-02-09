@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Intern - Submit Task Report</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="app">
+  <div id="navbar"></div>
+  <div class="content">
+    <div class="tile">
+      <h2>Submit Task Report</h2>
+      <p class="help">Write your report for a task and submit to supervisor.</p>
+
+      <div id="msg" class="msg"></div>
+      <div class="hr"></div>
+
+      <div class="field">
+        <label>Task</label>
+        <select id="taskSelect"></select>
+      </div>
+
+      <div class="field">
+        <label>Report Content</label>
+        <textarea id="content" rows="8" placeholder="Explain what you did, progress, links, results..."></textarea>
+      </div>
+
+      <button class="btn" id="submitBtn" type="button" style="max-width:220px">Submit</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  initTheme(); renderNavbar();
+  const user=requireAuthOrRedirect();
+  if(user.role!=="INTERN") window.location.href="dashboard.html";
+
+  const msg=document.getElementById("msg");
+  const taskSelect=document.getElementById("taskSelect");
+  const contentEl=document.getElementById("content");
+  const submitBtn=document.getElementById("submitBtn");
+
+  function showMsg(el,t,type="ok"){ el.classList.add("show"); el.classList.remove("ok","err"); el.classList.add(type==="ok"?"ok":"err"); el.textContent=t; }
+  function hideMsg(el){ el.classList.remove("show"); el.textContent=""; }
+
+  async function loadTasks(){
+    const res=await apiFetch("/internships/intern/tasks/",{method:"GET"});
+    const data=await res.json().catch(()=>[]);
+    if(!res.ok) throw new Error(data.detail||"Failed to load tasks");
+    taskSelect.innerHTML="";
+    data.forEach(t=>{
+      const opt=document.createElement("option");
+      opt.value=t.id;
+      opt.textContent=`#${t.id} - ${t.title}`;
+      taskSelect.appendChild(opt);
+    });
+  }
+
+  submitBtn.addEventListener("click", async ()=>{
+    hideMsg(msg);
+    const id=parseInt(taskSelect.value,10);
+    const content=contentEl.value.trim();
+    if(!id){ showMsg(msg,"Select task","err"); return; }
+    if(!content){ showMsg(msg,"Write report content","err"); return; }
+
+    submitBtn.disabled=true;
+    try{
+      const res=await apiFetch(`/internships/intern/tasks/${id}/report/`,{
+        method:"POST",
+        body: JSON.stringify({ content })
+      });
+      const data=await res.json().catch(()=> ({}));
+      if(!res.ok){ showMsg(msg, data.detail||"Submit failed","err"); return; }
+      showMsg(msg,"Report submitted ✅","ok");
+      contentEl.value="";
+    }catch{ showMsg(msg,"Network error","err"); }
+    finally{ submitBtn.disabled=false; }
+  });
+
+  (async()=>{
+    try{ await loadTasks(); }
+    catch(e){ showMsg(msg,e.message,"err"); }
+  })();
+</script>
+</body>
+</html>

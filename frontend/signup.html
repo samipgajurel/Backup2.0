@@ -1,0 +1,169 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Codavatar InternTrack - Signup</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <div class="brand">
+        <div>
+          <h1>Create Account</h1>
+          <small>Supervisor/Intern signup with email verification</small>
+        </div>
+        <button class="toggle" type="button" onclick="toggleTheme()">🌙/☀️ Theme</button>
+      </div>
+
+      <div id="msg" class="msg"></div>
+
+      <form id="form" class="form" autocomplete="on">
+        <div class="field">
+          <label for="full_name">Full Name</label>
+          <input id="full_name" type="text" placeholder="Full name" required />
+        </div>
+
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" type="email" placeholder="you@codavatar.com" required />
+        </div>
+
+        <div class="field">
+          <label for="role">Role</label>
+          <select id="role" required>
+            <option value="INTERN">Intern</option>
+            <option value="SUPERVISOR">Supervisor</option>
+          </select>
+          <div class="help">Admins should be created by company CSV or Django superuser.</div>
+        </div>
+
+        <div class="field">
+          <label for="password">Password</label>
+          <div class="input-row">
+            <input id="password" type="password" placeholder="Min 8, Uppercase, Number, Special" required />
+            <button class="eye-btn" type="button" id="pwToggleBtn">Show</button>
+          </div>
+          <div id="meter" class="pw-meter" style="margin-top:8px">
+            <span id="m_len">8+ chars</span>
+            <span id="m_upper">Uppercase</span>
+            <span id="m_num">Number</span>
+            <span id="m_special">Special</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="password2">Retype Password</label>
+          <div class="input-row">
+            <input id="password2" type="password" placeholder="Retype password" required />
+            <button class="eye-btn" type="button" id="pw2ToggleBtn">Show</button>
+          </div>
+        </div>
+
+        <button id="signupBtn" class="btn" type="button">Signup</button>
+
+        <div class="footer">
+          <a class="small-link" href="login.html">Back to login</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Required JS files (keep in this order) -->
+  <script src="js/api.js"></script>
+  <script src="js/theme.js"></script>
+  <script src="js/auth.js"></script>
+
+  <!-- Page script -->
+  <script>
+    // init UI
+    initTheme();
+    togglePassword("password", "pwToggleBtn");
+    togglePassword("password2", "pw2ToggleBtn");
+
+    const msg = document.getElementById("msg");
+    const form = document.getElementById("form");
+    const signupBtn = document.getElementById("signupBtn");
+
+    const pw = document.getElementById("password");
+    const pw2 = document.getElementById("password2");
+
+    const mLen = document.getElementById("m_len");
+    const mUpper = document.getElementById("m_upper");
+    const mNum = document.getElementById("m_num");
+    const mSpecial = document.getElementById("m_special");
+
+    function updateMeter() {
+      const c = passwordChecks(pw.value || "");
+      mLen.className = c.len ? "good" : "bad";
+      mUpper.className = c.upper ? "good" : "bad";
+      mNum.className = c.num ? "good" : "bad";
+      mSpecial.className = c.special ? "good" : "bad";
+    }
+    pw.addEventListener("input", updateMeter);
+    updateMeter();
+
+    bindEnterToSubmit(form, signupBtn);
+
+    async function doSignup() {
+      hideMsg(msg);
+      signupBtn.disabled = true;
+
+      const full_name = document.getElementById("full_name").value.trim();
+      const email = document.getElementById("email").value.trim().toLowerCase();
+      const role = document.getElementById("role").value;
+      const password = pw.value;
+      const password2 = pw2.value;
+
+      if (!passwordStrong(password)) {
+        showMsg(msg, "Password must be 8+ chars and include uppercase, number, and special character.", "err");
+        signupBtn.disabled = false;
+        return;
+      }
+      if (password !== password2) {
+        showMsg(msg, "Passwords do not match.", "err");
+        signupBtn.disabled = false;
+        return;
+      }
+
+      try {
+        const res = await apiFetch("/accounts/signup/", {
+          method: "POST",
+          body: JSON.stringify({ full_name, email, role, password })
+        });
+
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          // If backend tells verify email, redirect to webmail
+          if (data && data.action === "VERIFY_EMAIL" && data.redirect_url) {
+            showMsg(msg, data.detail || "Please verify your email.", "err");
+            setTimeout(() => window.location.href = data.redirect_url, 1200);
+            return;
+          }
+
+          showMsg(msg, data.detail || "Signup failed.", "err");
+          return;
+        }
+
+        // Success -> show then redirect
+        showMsg(msg, data.detail || "Signup successful. Please verify your email in webmail.", "ok");
+        form.reset();
+        updateMeter();
+
+        const redirectUrl = data.redirect_url || "https://webmail.migadu.com/";
+        setTimeout(() => window.location.href = redirectUrl, 1200);
+
+      } catch (e) {
+        console.error(e);
+        showMsg(msg, "Network error. Is backend running?", "err");
+      } finally {
+        signupBtn.disabled = false;
+      }
+    }
+
+    signupBtn.addEventListener("click", doSignup);
+  </script>
+</body>
+</html>

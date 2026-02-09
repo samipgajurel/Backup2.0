@@ -1,0 +1,148 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin Analytics - Codavatar InternTrack</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <div id="navbar"></div>
+
+    <div class="content">
+      <div class="grid">
+        <div class="tile">
+          <div class="row">
+            <div>
+              <h2 style="margin:0">Admin Analytics</h2>
+              <p class="help" style="margin-top:6px">Live counts from backend: interns, supervisors, tasks, open complaints.</p>
+            </div>
+            <button class="btn-inline" id="refreshBtn" type="button">Refresh</button>
+          </div>
+
+          <div id="msg" class="msg"></div>
+          <div class="hr"></div>
+
+          <div class="grid" style="margin-top:12px">
+            <div class="tile half">
+              <h2>Overview (Bar)</h2>
+              <canvas id="barChart" height="140"></canvas>
+            </div>
+
+            <div class="tile half">
+              <h2>Distribution (Doughnut)</h2>
+              <canvas id="donutChart" height="140"></canvas>
+            </div>
+          </div>
+
+          <div class="help" style="margin-top:10px">
+            Note: colors are default Chart.js theme. You can later customize to match your company UI.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <script src="js/api.js"></script>
+  <script src="js/theme.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/navbar.js"></script>
+
+  <script>
+    initTheme();
+    renderNavbar();
+
+    const user = requireAuthOrRedirect();
+    if (user.role !== "ADMIN") window.location.href = "dashboard.html";
+
+    const msg = document.getElementById("msg");
+    const refreshBtn = document.getElementById("refreshBtn");
+
+    let barChart, donutChart;
+
+    function showMsg(el, text, type = "ok") {
+      el.classList.add("show");
+      el.classList.remove("ok","err");
+      el.classList.add(type === "ok" ? "ok" : "err");
+      el.textContent = text;
+    }
+    function hideMsg(el){ el.classList.remove("show"); el.textContent=""; }
+
+    function destroyCharts(){
+      if(barChart){ barChart.destroy(); barChart=null; }
+      if(donutChart){ donutChart.destroy(); donutChart=null; }
+    }
+
+    function renderCharts(counts){
+      destroyCharts();
+
+      const labels = ["Interns", "Supervisors", "Tasks", "Open Complaints"];
+      const values = [
+        counts.interns ?? 0,
+        counts.supervisors ?? 0,
+        counts.tasks_total ?? 0,
+        counts.complaints_open ?? 0
+      ];
+
+      const barCtx = document.getElementById("barChart");
+      barChart = new Chart(barCtx, {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [{
+            label: "Counts",
+            data: values
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+
+      const donutCtx = document.getElementById("donutChart");
+      donutChart = new Chart(donutCtx, {
+        type: "doughnut",
+        data: {
+          labels,
+          datasets: [{
+            label: "Distribution",
+            data: values
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: "bottom" } }
+        }
+      });
+    }
+
+    async function loadAnalytics(){
+      hideMsg(msg);
+
+      try{
+        const res = await apiFetch("/internships/admin/analytics/", { method:"GET" });
+        const data = await res.json().catch(()=> ({}));
+
+        if(!res.ok){
+          showMsg(msg, data.detail || "Failed to load analytics", "err");
+          return;
+        }
+
+        renderCharts(data.counts || {});
+        showMsg(msg, "Analytics loaded ✅", "ok");
+      }catch(e){
+        showMsg(msg, "Network error. Is backend running?", "err");
+      }
+    }
+
+    refreshBtn.addEventListener("click", loadAnalytics);
+    loadAnalytics();
+  </script>
+</body>
+</html>

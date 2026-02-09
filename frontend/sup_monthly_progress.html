@@ -1,0 +1,94 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Supervisor - Monthly Progress Summary</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="app">
+  <div id="navbar"></div>
+  <div class="content">
+    <div class="tile">
+      <div class="row">
+        <div>
+          <h2 style="margin:0">Monthly Progress Summary</h2>
+          <p class="help" style="margin-top:6px">Auto-summary from tasks you created and rated.</p>
+        </div>
+        <button class="btn-inline" id="refreshBtn" type="button">Refresh</button>
+      </div>
+
+      <div id="msg" class="msg"></div>
+      <div class="hr"></div>
+
+      <div class="help" id="statusText">Loading…</div>
+      <div id="list" class="help" style="margin-top:10px"></div>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  initTheme(); renderNavbar();
+  const user=requireAuthOrRedirect();
+  if(user.role!=="SUPERVISOR") window.location.href="dashboard.html";
+
+  const msg=document.getElementById("msg");
+  const refreshBtn=document.getElementById("refreshBtn");
+  const statusText=document.getElementById("statusText");
+  const list=document.getElementById("list");
+
+  function showMsg(el,t,type="ok"){ el.classList.add("show"); el.classList.remove("ok","err"); el.classList.add(type==="ok"?"ok":"err"); el.textContent=t; }
+  function hideMsg(el){ el.classList.remove("show"); el.textContent=""; }
+
+  function summarize(tasks){
+    const map = new Map();
+    tasks.forEach(t=>{
+      const key = t.intern_email || t.intern;
+      if(!map.has(key)) map.set(key, { intern_name: t.intern_name, intern_email: t.intern_email, total:0, completed:0, starsSum:0, starsCount:0 });
+      const obj = map.get(key);
+      obj.total += 1;
+      if(t.status==="COMPLETED") obj.completed += 1;
+      if(t.star_rating){ obj.starsSum += t.star_rating; obj.starsCount += 1; }
+    });
+    return [...map.values()].sort((a,b)=> b.completed - a.completed);
+  }
+
+  async function load(){
+    hideMsg(msg);
+    list.innerHTML=""; statusText.textContent="Loading…";
+    try{
+      const res=await apiFetch("/internships/supervisor/tasks/",{method:"GET"});
+      const data=await res.json().catch(()=>[]);
+      if(!res.ok){ showMsg(msg, data.detail||"Failed","err"); statusText.textContent="Failed."; return; }
+
+      const tasks = Array.isArray(data) ? data : [];
+      const summary = summarize(tasks);
+      statusText.textContent = `Interns: ${summary.length} | Tasks: ${tasks.length}`;
+
+      if(!summary.length){ list.innerHTML="<i>No data</i>"; return; }
+
+      summary.forEach(s=>{
+        const avg = s.starsCount ? (s.starsSum/s.starsCount).toFixed(2) : "-";
+        const div=document.createElement("div");
+        div.style.borderBottom="1px solid var(--border)";
+        div.style.padding="10px 0";
+        div.innerHTML=`
+          <b>${s.intern_name || s.intern_email}</b> <span style="color:var(--muted)">(${s.intern_email})</span><br/>
+          Total Tasks: ${s.total} • Completed: ${s.completed} • Avg Stars: ${avg}
+        `;
+        list.appendChild(div);
+      });
+
+    }catch{ showMsg(msg,"Network error","err"); statusText.textContent="Network error."; }
+  }
+
+  refreshBtn.addEventListener("click", load);
+  load();
+</script>
+</body>
+</html>

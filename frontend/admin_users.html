@@ -1,0 +1,153 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin - Users</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <div id="navbar"></div>
+
+    <div class="content">
+      <div class="grid">
+        <div class="tile">
+          <div class="row">
+            <div>
+              <h2 style="margin:0">Users</h2>
+              <p class="help" style="margin-top:6px">View interns/supervisors and delete users.</p>
+            </div>
+            <button class="btn-inline" id="refreshBtn" type="button">Refresh</button>
+          </div>
+
+          <div id="msg" class="msg"></div>
+          <div class="hr"></div>
+
+          <div class="grid">
+            <div class="tile half">
+              <h2>Interns</h2>
+              <div class="help" id="internCount">Loading…</div>
+              <div id="internList" class="help" style="margin-top:10px"></div>
+            </div>
+
+            <div class="tile half">
+              <h2>Supervisors</h2>
+              <div class="help" id="supCount">Loading…</div>
+              <div id="supList" class="help" style="margin-top:10px"></div>
+            </div>
+          </div>
+
+          <div class="help" style="margin-top:10px">
+            Endpoint: <code>/accounts/admin/users/</code> and <code>/accounts/admin/delete-user/&lt;id&gt;/</code>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/theme.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/navbar.js"></script>
+  <script>
+    initTheme();
+    renderNavbar();
+
+    const user = requireAuthOrRedirect();
+    if (user.role !== "ADMIN") window.location.href = "dashboard.html";
+
+    const msg = document.getElementById("msg");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const internList = document.getElementById("internList");
+    const supList = document.getElementById("supList");
+    const internCount = document.getElementById("internCount");
+    const supCount = document.getElementById("supCount");
+
+    function showMsg(el, text, type="ok"){
+      el.classList.add("show");
+      el.classList.remove("ok","err");
+      el.classList.add(type==="ok" ? "ok" : "err");
+      el.textContent = text;
+    }
+    function hideMsg(el){ el.classList.remove("show"); el.textContent=""; }
+
+    function renderUserRow(u, container) {
+      const row = document.createElement("div");
+      row.style.display = "flex";
+      row.style.gap = "10px";
+      row.style.justifyContent = "space-between";
+      row.style.alignItems = "center";
+      row.style.padding = "8px 0";
+      row.style.borderBottom = "1px solid var(--border)";
+
+      const left = document.createElement("div");
+      left.innerHTML = `<b>${u.full_name || ""}</b><br/><span style="color:var(--muted)">${u.email}</span>`;
+
+      const btn = document.createElement("button");
+      btn.className = "btn-inline";
+      btn.textContent = "Delete";
+      btn.addEventListener("click", () => deleteUser(u.id, u.email));
+
+      row.appendChild(left);
+      row.appendChild(btn);
+      container.appendChild(row);
+    }
+
+    async function deleteUser(id, email){
+      hideMsg(msg);
+      if (!confirm(`Delete user: ${email}?`)) return;
+
+      try {
+        const res = await apiFetch(`/accounts/admin/delete-user/${id}/`, { method: "DELETE" });
+        const data = await res.json().catch(()=> ({}));
+        if (!res.ok) {
+          showMsg(msg, data.detail || "Delete failed", "err");
+          return;
+        }
+        showMsg(msg, "User deleted ✅", "ok");
+        loadUsers();
+      } catch {
+        showMsg(msg, "Network error", "err");
+      }
+    }
+
+    async function loadUsers(){
+      hideMsg(msg);
+      internList.innerHTML = "";
+      supList.innerHTML = "";
+      internCount.textContent = "Loading…";
+      supCount.textContent = "Loading…";
+
+      try {
+        const res = await apiFetch("/accounts/admin/users/", { method: "GET" });
+        const data = await res.json().catch(()=> ({}));
+
+        if (!res.ok) {
+          showMsg(msg, data.detail || "Failed to load users", "err");
+          internCount.textContent = "Failed.";
+          supCount.textContent = "Failed.";
+          return;
+        }
+
+        const interns = data.interns || [];
+        const supervisors = data.supervisors || [];
+
+        internCount.textContent = `Total interns: ${interns.length}`;
+        supCount.textContent = `Total supervisors: ${supervisors.length}`;
+
+        if (!interns.length) internList.innerHTML = "<i>No interns found</i>";
+        else interns.forEach(u => renderUserRow(u, internList));
+
+        if (!supervisors.length) supList.innerHTML = "<i>No supervisors found</i>";
+        else supervisors.forEach(u => renderUserRow(u, supList));
+      } catch {
+        showMsg(msg, "Network error. Is backend running?", "err");
+      }
+    }
+
+    refreshBtn.addEventListener("click", loadUsers);
+    loadUsers();
+  </script>
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Intern - Feedback & Progress</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    .pill{display:inline-block;padding:6px 10px;border-radius:999px;border:1px solid var(--border);font-size:13px}
+    .card{border-bottom:1px solid var(--border);padding:12px 0}
+    .muted{color:var(--muted)}
+    .pre{white-space:pre-wrap}
+  </style>
+</head>
+<body>
+<div class="app">
+  <div id="navbar"></div>
+
+  <div class="content">
+    <div class="tile">
+      <div class="row">
+        <div>
+          <h2 style="margin:0">Feedback & Progress</h2>
+          <p class="help" style="margin-top:6px">See star ratings and supervisor feedback for your tasks.</p>
+        </div>
+        <button class="btn-inline" id="refreshBtn" type="button">Refresh</button>
+      </div>
+
+      <div id="msg" class="msg"></div>
+      <div class="hr"></div>
+
+      <div class="field">
+        <label>Search</label>
+        <input id="search" type="text" placeholder="Filter by task title / status..." />
+      </div>
+
+      <div class="help" id="countText" style="margin-top:10px">Loading…</div>
+      <div id="list" style="margin-top:10px"></div>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  initTheme(); renderNavbar();
+  const user = requireAuthOrRedirect();
+  if (user.role !== "INTERN") location.href = "dashboard.html";
+
+  const msg = document.getElementById("msg");
+  const refreshBtn = document.getElementById("refreshBtn");
+  const search = document.getElementById("search");
+  const countText = document.getElementById("countText");
+  const list = document.getElementById("list");
+
+  let tasks = [];
+
+  function showMsg(t, type="ok"){
+    msg.classList.add("show"); msg.classList.remove("ok","err");
+    msg.classList.add(type==="ok" ? "ok" : "err");
+    msg.textContent = t;
+  }
+  function hideMsg(){ msg.classList.remove("show"); msg.textContent=""; }
+
+  function starsText(n){
+    if(!n) return "-";
+    return "⭐".repeat(Math.max(0, Math.min(5, n)));
+  }
+
+  function render(){
+    const q = search.value.trim().toLowerCase();
+    const filtered = tasks.filter(t =>
+      (t.title||"").toLowerCase().includes(q) ||
+      (t.status||"").toLowerCase().includes(q)
+    );
+
+    countText.textContent = `Showing ${filtered.length} / ${tasks.length}`;
+    list.innerHTML = "";
+
+    if(!filtered.length){
+      list.innerHTML = `<i class="muted">No feedback records yet.</i>`;
+      return;
+    }
+
+    filtered.forEach(t=>{
+      const div = document.createElement("div");
+      div.className = "card";
+
+      const rating = t.star_rating ?? null;
+      const feedback = (t.supervisor_feedback || "").trim();
+
+      div.innerHTML = `
+        <div class="row" style="align-items:flex-start; gap:10px">
+          <div style="flex:1">
+            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center">
+              <b>${t.title}</b>
+              <span class="pill">${t.status}</span>
+              <span class="pill">Stars: ${starsText(rating)}</span>
+            </div>
+            <div class="muted" style="margin-top:6px">
+              Supervisor: ${t.supervisor_name || "-"} • Created: ${t.created_at || "-"}
+            </div>
+            <div class="pre" style="margin-top:10px">
+              <b>Feedback:</b><br/>
+              ${feedback ? feedback : "<span class='muted'>No feedback yet.</span>"}
+            </div>
+          </div>
+        </div>
+      `;
+      list.appendChild(div);
+    });
+  }
+
+  async function load(){
+    hideMsg();
+    countText.textContent = "Loading…";
+    list.innerHTML = "";
+    try{
+      const res = await apiFetch("/internships/intern/tasks/", { method:"GET" });
+      const data = await res.json().catch(()=>[]);
+      if(!res.ok){
+        showMsg(data.detail || "Failed to load tasks", "err");
+        countText.textContent = "Failed.";
+        return;
+      }
+      tasks = Array.isArray(data) ? data : [];
+      render();
+    }catch{
+      showMsg("Network error", "err");
+      countText.textContent = "Network error.";
+    }
+  }
+
+  refreshBtn.addEventListener("click", load);
+  search.addEventListener("input", render);
+  load();
+</script>
+</body>
+</html>

@@ -1,0 +1,195 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Codavatar InternTrack - Dashboard</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <div id="navbar"></div>
+
+    <div class="content">
+      <div class="grid">
+        <div class="tile half">
+          <h2>Welcome</h2>
+          <p id="who"></p>
+          <div class="kpis" id="kpis"></div>
+        </div>
+
+        <div class="tile half">
+          <h2>Quick Actions</h2>
+          <p id="hint" class="help"></p>
+          <div class="kpis" id="actions"></div>
+        </div>
+
+        <div class="tile">
+          <div class="row">
+            <h2 style="margin:0">System Status</h2>
+            <button class="btn-inline" id="refreshBtn" type="button">Refresh</button>
+          </div>
+          <div id="msg" class="msg"></div>
+          <div class="help" id="statusText">Loading…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/theme.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/navbar.js"></script>
+
+  <script>
+    initTheme();
+
+    // ✅ enforce login BEFORE navbar
+    const user = requireAuthOrRedirect();
+    if (!user) throw new Error("Not logged in");
+
+    // ✅ make logout globally visible (for any inline handlers)
+    window.logout = logout;
+
+    // ✅ render navbar after we have user session
+    renderNavbar();
+
+    const msg = document.getElementById("msg");
+
+    function kpi(label, value) {
+      const d = document.createElement("div");
+      d.className = "kpi";
+      d.innerHTML = `<div class="label">${label}</div><div class="value">${value}</div>`;
+      return d;
+    }
+
+    function action(label, href) {
+      const d = document.createElement("div");
+      d.className = "kpi";
+      d.style.cursor = "pointer";
+      d.innerHTML = `<div class="label">Open</div><div class="value" style="font-size:14px">${label}</div>`;
+      d.addEventListener("click", () => window.location.href = href);
+      return d;
+    }
+
+    document.getElementById("who").textContent =
+      `${user.full_name || user.email} (${user.role})`;
+
+    function setHint(role){
+      const hint = document.getElementById("hint");
+      if(role === "ADMIN") hint.textContent = "Manage users, assign interns, monitor attendance, complaints, and reports.";
+      else if(role === "SUPERVISOR") hint.textContent = "Create tasks, rate progress, review reports & attendance, handle complaints.";
+      else hint.textContent = "Track your tasks, submit reports, mark attendance with location validation.";
+    }
+
+    async function loadDashboard() {
+      hideMsg(msg);
+      document.getElementById("statusText").textContent = "Loading…";
+
+      const kpisEl = document.getElementById("kpis");
+      const actionsEl = document.getElementById("actions");
+      kpisEl.innerHTML = "";
+      actionsEl.innerHTML = "";
+
+      setHint(user.role);
+
+      try {
+        if (user.role === "ADMIN") {
+          const res = await apiFetch("/internships/admin/analytics/", { method: "GET" });
+          const data = await res.json().catch(() => ({}));
+
+          if (!res.ok) {
+            showMsg(msg, data.detail || "Failed to load admin analytics", "err");
+            document.getElementById("statusText").textContent = "API error.";
+            return;
+          }
+
+          const c = data.counts || {};
+          kpisEl.appendChild(kpi("Interns", c.interns ?? 0));
+          kpisEl.appendChild(kpi("Supervisors", c.supervisors ?? 0));
+          kpisEl.appendChild(kpi("Tasks", c.tasks_total ?? 0));
+          kpisEl.appendChild(kpi("Open Complaints", c.complaints_open ?? 0));
+
+          actionsEl.appendChild(action("Analytics (Charts)", "admin_analytics.html"));
+          actionsEl.appendChild(action("Assign Interns", "admin_assign.html"));
+          actionsEl.appendChild(action("Users", "admin_users.html"));
+          actionsEl.appendChild(action("Attendance", "admin_attendance.html"));
+          actionsEl.appendChild(action("Complaints", "admin_complaints.html"));
+          actionsEl.appendChild(action("Activity Log", "admin_activity.html"));
+          actionsEl.appendChild(action("Monthly Reports", "admin_reports.html"));
+
+          document.getElementById("statusText").textContent = "Admin dashboard loaded.";
+        }
+        else if (user.role === "SUPERVISOR") {
+          const internsRes = await apiFetch("/internships/supervisor/interns/", { method: "GET" });
+          const interns = await internsRes.json().catch(() => ([]));
+
+          const tasksRes = await apiFetch("/internships/supervisor/tasks/", { method: "GET" });
+          const tasks = await tasksRes.json().catch(() => ([]));
+
+          if (!internsRes.ok) showMsg(msg, "Failed to load interns (are you verified/assigned?)", "err");
+          if (!tasksRes.ok) showMsg(msg, "Failed to load tasks", "err");
+
+          const totalTasks = Array.isArray(tasks) ? tasks.length : 0;
+          const completed = Array.isArray(tasks) ? tasks.filter(t => t.status === "COMPLETED").length : 0;
+          const inProg = Array.isArray(tasks) ? tasks.filter(t => t.status === "IN_PROGRESS").length : 0;
+
+          kpisEl.appendChild(kpi("My Interns", Array.isArray(interns) ? interns.length : 0));
+          kpisEl.appendChild(kpi("Tasks", totalTasks));
+          kpisEl.appendChild(kpi("In Progress", inProg));
+          kpisEl.appendChild(kpi("Completed", completed));
+
+          // ✅ match YOUR folder names
+          actionsEl.appendChild(action("My Interns", "sup_interns.html"));
+          actionsEl.appendChild(action("Create Task", "sup_create_tasks.html"));
+          actionsEl.appendChild(action("Tasks", "sup_task.html"));
+          actionsEl.appendChild(action("Rate / Feedback", "sup_rate.html"));
+          actionsEl.appendChild(action("Reports", "sup_reports.html"));
+          actionsEl.appendChild(action("Attendance", "sup_attendance.html"));
+          actionsEl.appendChild(action("Complaints", "sup_complaints.html"));
+          actionsEl.appendChild(action("Monthly Progress", "sup_monthly_progress.html"));
+
+          document.getElementById("statusText").textContent = "Supervisor dashboard loaded.";
+        }
+        else {
+          const tasksRes = await apiFetch("/internships/intern/tasks/", { method: "GET" });
+          const tasks = await tasksRes.json().catch(() => ([]));
+
+          const supRes = await apiFetch("/internships/intern/supervisor/", { method: "GET" });
+          const sup = await supRes.json().catch(() => ({}));
+
+          const totalTasks = Array.isArray(tasks) ? tasks.length : 0;
+          const done = Array.isArray(tasks) ? tasks.filter(t => t.status === "DONE").length : 0;
+          const completed = Array.isArray(tasks) ? tasks.filter(t => t.status === "COMPLETED").length : 0;
+          const inProg = Array.isArray(tasks) ? tasks.filter(t => t.status === "IN_PROGRESS").length : 0;
+
+          kpisEl.appendChild(kpi("My Tasks", totalTasks));
+          kpisEl.appendChild(kpi("In Progress", inProg));
+          kpisEl.appendChild(kpi("Done", done));
+          kpisEl.appendChild(kpi("Completed", completed));
+
+          const supName = sup && sup.full_name ? sup.full_name : "Not assigned";
+          actionsEl.appendChild(kpi("Supervisor", supName));
+
+          actionsEl.appendChild(action("My Tasks", "intern_tasks.html"));
+          actionsEl.appendChild(action("Task Status", "intern_status.html"));
+          actionsEl.appendChild(action("Submit Report", "intern_report.html"));
+          actionsEl.appendChild(action("Mark Attendance", "intern_attendance.html"));
+          actionsEl.appendChild(action("Supervisor", "intern_supervisor.html"));
+          actionsEl.appendChild(action("Complaints", "intern_complaints.html"));
+          actionsEl.appendChild(action("Feedback", "intern_feedback.html"));
+
+          document.getElementById("statusText").textContent = "Intern dashboard loaded.";
+        }
+      } catch (e) {
+        console.error(e);
+        showMsg(msg, "Network/API error. Is backend running?", "err");
+        document.getElementById("statusText").textContent = "Network error.";
+      }
+    }
+
+    document.getElementById("refreshBtn").addEventListener("click", loadDashboard);
+    loadDashboard();
+  </script>
+</body>
+</html>

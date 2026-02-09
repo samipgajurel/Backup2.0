@@ -1,0 +1,40 @@
+<!doctype html><html><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Supervisor - Feedbacks</title><link rel="stylesheet" href="css/style.css"/>
+</head><body>
+<script src="js/theme.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/navbar.js"></script>
+<script>requireRole("SUPERVISOR"); renderNavbar();</script>
+
+<div class="container">
+  <div class="card">
+    <h2>All Feedbacks (previous + current)</h2>
+    <table class="table" id="t">
+      <thead><tr><th>Task</th><th>Intern</th><th>Status</th><th>Stars</th><th>Feedback</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+async function load(){
+  const res = await apiFetch("/internships/supervisor/tasks/", {method:"GET"});
+  const data = await res.json().catch(()=>[]);
+  const body=document.querySelector("#t tbody");
+  body.innerHTML="";
+  for(const t of data){
+    body.insertAdjacentHTML("beforeend", `<tr>
+      <td>${escapeHtml(t.title||"")}</td>
+      <td>${escapeHtml(t.intern_email||"")}</td>
+      <td>${escapeHtml(t.status||"")}</td>
+      <td>${t.star_rating||""}</td>
+      <td>${escapeHtml(t.supervisor_feedback||"")}</td>
+    </tr>`);
+  }
+}
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[m])); }
+load();
+</script>
+</body></html>

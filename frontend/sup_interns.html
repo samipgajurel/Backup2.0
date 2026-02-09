@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Supervisor - My Interns</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="app">
+  <div id="navbar"></div>
+  <div class="content">
+    <div class="tile">
+      <div class="row">
+        <div>
+          <h2 style="margin:0">My Interns</h2>
+          <p class="help" style="margin-top:6px">Interns assigned to you by Admin.</p>
+        </div>
+        <button class="btn-inline" id="refreshBtn" type="button">Refresh</button>
+      </div>
+
+      <div id="msg" class="msg"></div>
+      <div class="hr"></div>
+
+      <div class="field">
+        <label>Search</label>
+        <input id="search" type="text" placeholder="Filter by name/email..." />
+      </div>
+
+      <div class="help" id="countText" style="margin-top:10px">Loading…</div>
+      <div id="list" class="help" style="margin-top:10px"></div>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  initTheme(); renderNavbar();
+  const user = requireAuthOrRedirect();
+  if (user.role !== "SUPERVISOR") window.location.href = "dashboard.html";
+
+  const msg = document.getElementById("msg");
+  const refreshBtn = document.getElementById("refreshBtn");
+  const list = document.getElementById("list");
+  const countText = document.getElementById("countText");
+  const search = document.getElementById("search");
+  let rows = [];
+
+  function showMsg(el, t, type="ok"){ el.classList.add("show"); el.classList.remove("ok","err"); el.classList.add(type==="ok"?"ok":"err"); el.textContent=t; }
+  function hideMsg(el){ el.classList.remove("show"); el.textContent=""; }
+
+  function render(){
+    const q = search.value.trim().toLowerCase();
+    const filtered = rows.filter(r =>
+      (r.full_name||"").toLowerCase().includes(q) ||
+      (r.email||"").toLowerCase().includes(q)
+    );
+    countText.textContent = `Showing ${filtered.length} / ${rows.length}`;
+    list.innerHTML = "";
+    if(!filtered.length){ list.innerHTML="<i>No interns assigned</i>"; return; }
+
+    filtered.forEach(i=>{
+      const div=document.createElement("div");
+      div.style.borderBottom="1px solid var(--border)";
+      div.style.padding="10px 0";
+      div.innerHTML = `<b>${i.full_name}</b> <span style="color:var(--muted)">(${i.email})</span><br/>
+                       <span style="color:var(--muted)">ID: ${i.id}</span>`;
+      list.appendChild(div);
+    });
+  }
+
+  async function load(){
+    hideMsg(msg);
+    list.innerHTML=""; countText.textContent="Loading…";
+    try{
+      const res = await apiFetch("/internships/supervisor/interns/", {method:"GET"});
+      const data = await res.json().catch(()=>[]);
+      if(!res.ok){ showMsg(msg, data.detail || "Failed to load interns", "err"); countText.textContent="Failed."; return; }
+      rows = Array.isArray(data) ? data : [];
+      render();
+    }catch{ showMsg(msg,"Network error","err"); countText.textContent="Network error."; }
+  }
+
+  refreshBtn.addEventListener("click", load);
+  search.addEventListener("input", render);
+  load();
+</script>
+</body>
+</html>

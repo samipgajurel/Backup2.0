@@ -1,0 +1,100 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Intern - Mark Attendance</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="app">
+  <div id="navbar"></div>
+  <div class="content">
+    <div class="tile">
+      <h2>Mark Attendance</h2>
+      <p class="help">Marks attendance with GPS. Backend validates office distance.</p>
+
+      <div id="msg" class="msg"></div>
+      <div class="hr"></div>
+
+      <div class="field">
+        <label>Are you in office today?</label>
+        <select id="inOffice">
+          <option value="true">Yes (In Office)</option>
+          <option value="false">No (Remote/Absent)</option>
+        </select>
+      </div>
+
+      <div class="help" id="gpsText">GPS: not requested yet</div>
+
+      <button class="btn" id="markBtn" type="button" style="max-width:220px">Mark Attendance</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  initTheme(); renderNavbar();
+  const user=requireAuthOrRedirect();
+  if(user.role!=="INTERN") window.location.href="dashboard.html";
+
+  const msg=document.getElementById("msg");
+  const inOffice=document.getElementById("inOffice");
+  const gpsText=document.getElementById("gpsText");
+  const markBtn=document.getElementById("markBtn");
+
+  let coords = null;
+
+  function showMsg(el,t,type="ok"){ el.classList.add("show"); el.classList.remove("ok","err"); el.classList.add(type==="ok"?"ok":"err"); el.textContent=t; }
+  function hideMsg(el){ el.classList.remove("show"); el.textContent=""; }
+
+  function getGPS(){
+    gpsText.textContent = "Requesting GPS permission…";
+    if(!navigator.geolocation){
+      gpsText.textContent="GPS not supported in this browser.";
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos)=>{
+        coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        gpsText.textContent = `GPS OK: lat=${coords.lat.toFixed(6)}, lng=${coords.lng.toFixed(6)}`;
+      },
+      (err)=>{
+        coords=null;
+        gpsText.textContent = "GPS denied/failed. You can still submit but validation will fail.";
+      },
+      { enableHighAccuracy:true, timeout:10000, maximumAge:0 }
+    );
+  }
+
+  markBtn.addEventListener("click", async ()=>{
+    hideMsg(msg);
+    const in_office = inOffice.value === "true";
+    const body = { in_office };
+
+    if(coords){
+      body.lat = coords.lat;
+      body.lng = coords.lng;
+    }
+
+    markBtn.disabled=true;
+    try{
+      const res=await apiFetch("/internships/intern/attendance/mark/",{
+        method:"POST",
+        body: JSON.stringify(body)
+      });
+      const data=await res.json().catch(()=> ({}));
+      if(!res.ok){ showMsg(msg, data.detail||"Mark failed","err"); return; }
+      showMsg(msg, "Attendance marked ✅ (server validated distance)", "ok");
+    }catch{ showMsg(msg,"Network error","err"); }
+    finally{ markBtn.disabled=false; }
+  });
+
+  // auto request GPS
+  getGPS();
+</script>
+</body>
+</html>

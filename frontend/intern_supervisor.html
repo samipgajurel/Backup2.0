@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Intern - My Supervisor</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="app">
+  <div id="navbar"></div>
+  <div class="content">
+    <div class="tile">
+      <div class="row">
+        <div>
+          <h2 style="margin:0">My Supervisor</h2>
+          <p class="help" style="margin-top:6px">Supervisor assigned by Admin.</p>
+        </div>
+        <button class="btn-inline" id="refreshBtn" type="button">Refresh</button>
+      </div>
+
+      <div id="msg" class="msg"></div>
+      <div class="hr"></div>
+
+      <div class="help" id="info">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  initTheme(); renderNavbar();
+  const user=requireAuthOrRedirect();
+  if(user.role!=="INTERN") window.location.href="dashboard.html";
+
+  const msg=document.getElementById("msg");
+  const refreshBtn=document.getElementById("refreshBtn");
+  const info=document.getElementById("info");
+
+  function showMsg(el,t,type="ok"){ el.classList.add("show"); el.classList.remove("ok","err"); el.classList.add(type==="ok"?"ok":"err"); el.textContent=t; }
+  function hideMsg(el){ el.classList.remove("show"); el.textContent=""; }
+
+  async function load(){
+    hideMsg(msg);
+    info.textContent="Loading…";
+    try{
+      const res=await apiFetch("/internships/intern/supervisor/",{method:"GET"});
+      const data=await res.json().catch(()=> ({}));
+      if(!res.ok){ showMsg(msg, data.detail||"Failed","err"); info.textContent="Failed."; return; }
+
+      if(!data || !data.email){
+        info.innerHTML="<b>Not assigned yet</b><br/>Ask admin to assign you to a supervisor.";
+        return;
+      }
+
+      info.innerHTML = `
+        <b>${data.full_name}</b><br/>
+        <span style="color:var(--muted)">${data.email}</span><br/>
+        <span style="color:var(--muted)">Department:</span> ${data.department || "-"}
+      `;
+    }catch{
+      showMsg(msg,"Network error","err");
+      info.textContent="Network error.";
+    }
+  }
+
+  refreshBtn.addEventListener("click", load);
+  load();
+</script>
+</body>
+</html>

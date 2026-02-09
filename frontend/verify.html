@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Verify Email - Codavatar InternTrack</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="app">
+  <div class="content" style="max-width:520px">
+    <div class="tile">
+      <h2>Email Verification</h2>
+      <p class="help" id="info">Checking verification token…</p>
+
+      <div id="msg" class="msg"></div>
+      <div class="hr"></div>
+
+      <div class="field">
+        <label>Token</label>
+        <input id="token" type="text" placeholder="token" />
+      </div>
+
+      <button class="btn" id="verifyBtn" type="button" style="max-width:220px">Verify</button>
+
+      <p class="help" style="margin-top:12px">
+        After verification, go to <a href="login.html">Login</a>.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/theme.js"></script>
+<script>
+  initTheme();
+
+  const msg = document.getElementById("msg");
+  const info = document.getElementById("info");
+  const tokenEl = document.getElementById("token");
+  const verifyBtn = document.getElementById("verifyBtn");
+
+  function showMsg(t, type="ok"){
+    msg.classList.add("show"); msg.classList.remove("ok","err");
+    msg.classList.add(type==="ok" ? "ok" : "err");
+    msg.textContent = t;
+  }
+  function hideMsg(){ msg.classList.remove("show"); msg.textContent=""; }
+
+  function getTokenFromURL(){
+    const url = new URL(window.location.href);
+    return (url.searchParams.get("token") || "").trim();
+  }
+
+  async function verify(){
+    hideMsg();
+    const token = tokenEl.value.trim();
+    if(!token){ showMsg("Token is required", "err"); return; }
+
+    verifyBtn.disabled = true;
+    info.textContent = "Verifying…";
+
+    try{
+      const res = await fetch(`${API_BASE}/accounts/verify-email/`,{
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ token })
+      });
+      const data = await res.json().catch(()=> ({}));
+      if(!res.ok){
+        showMsg(data.detail || "Invalid/expired token", "err");
+        info.textContent = "Verification failed.";
+        return;
+      }
+      showMsg(data.detail || "Email verified successfully ✅", "ok");
+      info.textContent = "Verified! You can login now.";
+    }catch{
+      showMsg("Network error", "err");
+      info.textContent = "Network error.";
+    }finally{
+      verifyBtn.disabled = false;
+    }
+  }
+
+  verifyBtn.addEventListener("click", verify);
+
+  // Auto-load token from URL and auto-verify (nice UX)
+  const t = getTokenFromURL();
+  if(t){
+    tokenEl.value = t;
+    verify();
+  }else{
+    info.textContent = "Paste your token or open the verification link from email.";
+  }
+</script>
+</body>
+</html>

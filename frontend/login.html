@@ -1,0 +1,178 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Codavatar InternTrack - Login</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <div class="brand">
+        <div>
+          <h1>Codavatar InternTrack</h1>
+          <small>Login to continue</small>
+        </div>
+        <button class="toggle" type="button" id="themeBtn">🌙/☀️ Theme</button>
+      </div>
+
+      <div id="msg" class="msg" style="display:none;"></div>
+
+      <form id="form" class="form" autocomplete="on">
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" type="email" placeholder="you@codavatar.com" required />
+        </div>
+
+        <div class="field">
+          <label for="password">Password</label>
+          <div class="input-row">
+            <input id="password" type="password" placeholder="••••••••" required />
+            <button class="eye-btn" type="button" id="pwToggleBtn">Show</button>
+          </div>
+        </div>
+
+        <button id="loginBtn" class="btn" type="button">Login</button>
+
+        <div class="footer">
+          <a class="small-link" href="forgot_password.html">Forgot password?</a>
+          <a class="small-link" href="signup.html">Signup</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script>
+    // ---------- Theme (no dependency) ----------
+    function applyTheme(theme) {
+      document.documentElement.setAttribute("data-theme", theme);
+      localStorage.setItem("theme", theme);
+    }
+    function initTheme() {
+      const t = localStorage.getItem("theme") || "light";
+      applyTheme(t);
+    }
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute("data-theme") || "light";
+      applyTheme(current === "light" ? "dark" : "light");
+    }
+    document.getElementById("themeBtn").addEventListener("click", () => {
+      toggleTheme();
+    });
+    initTheme();
+
+    // ---------- UI helpers ----------
+    const msg = document.getElementById("msg");
+    const form = document.getElementById("form");
+    const loginBtn = document.getElementById("loginBtn");
+    const emailEl = document.getElementById("email");
+    const passwordEl = document.getElementById("password");
+    const pwToggleBtn = document.getElementById("pwToggleBtn");
+
+    function showMsg(text, type = "err") {
+      msg.style.display = "block";
+      msg.className = "msg " + (type === "ok" ? "ok" : "err");
+      msg.textContent = text;
+    }
+    function hideMsg() {
+      msg.style.display = "none";
+      msg.textContent = "";
+      msg.className = "msg";
+    }
+
+    function togglePassword() {
+      const isHidden = passwordEl.type === "password";
+      passwordEl.type = isHidden ? "text" : "password";
+      pwToggleBtn.textContent = isHidden ? "Hide" : "Show";
+    }
+    pwToggleBtn.addEventListener("click", togglePassword);
+
+    function setSession({ access, refresh, user }) {
+      if (access) localStorage.setItem("access", access);
+      if (refresh) localStorage.setItem("refresh", refresh);
+      if (user) localStorage.setItem("user", JSON.stringify(user));
+    }
+
+    async function doLogin() {
+      hideMsg();
+      loginBtn.disabled = true;
+
+      const email = emailEl.value.trim().toLowerCase();
+      const password = passwordEl.value;
+
+      if (!email || !password) {
+        showMsg("Email and password are required", "err");
+        loginBtn.disabled = false;
+        return;
+      }
+
+      try {
+        // 1) token
+        const res = await apiFetch("/token/", {
+          method: "POST",
+          body: JSON.stringify({ email, password }),
+        });
+
+        const text = await res.text();
+        let data = {};
+        try { data = text ? JSON.parse(text) : {}; } catch (_) {}
+
+        if (!res.ok) {
+          // ✅ If backend says VERIFY_EMAIL -> redirect to Migadu webmail
+          if (data && data.action === "VERIFY_EMAIL") {
+            const url = data.redirect_url || "https://webmail.migadu.com/";
+            showMsg(data.detail || "Please verify your email in webmail.", "err");
+            setTimeout(() => { window.location.href = url; }, 1200);
+            loginBtn.disabled = false;
+            return;
+          }
+
+          showMsg(data.detail || `Login failed (${res.status})`, "err");
+          loginBtn.disabled = false;
+          return;
+        }
+
+        setSession({ access: data.access, refresh: data.refresh });
+
+        // 2) profile
+        const meRes = await apiFetch("/accounts/me/", { method: "GET" });
+        const meText = await meRes.text();
+        let me = {};
+        try { me = meText ? JSON.parse(meText) : {}; } catch (_) {}
+
+        if (!meRes.ok) {
+          showMsg(me.detail || "Logged in but failed to fetch profile", "err");
+          loginBtn.disabled = false;
+          return;
+        }
+
+        setSession({ user: me });
+
+        // 3) redirect (optional: route by role)
+        // if (me.role === "ADMIN") window.location.href = "admin_analytics.html";
+        // else if (me.role === "SUPERVISOR") window.location.href = "sup_tasks.html";
+        // else window.location.href = "intern_tasks.html";
+        window.location.href = "dashboard.html";
+
+      } catch (e) {
+        console.error(e);
+        showMsg("Network error. Is backend running?", "err");
+      } finally {
+        loginBtn.disabled = false;
+      }
+    }
+
+    loginBtn.addEventListener("click", doLogin);
+
+    // Press Enter = login
+    form.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        doLogin();
+      }
+    });
+  </script>
+</body>
+</html>

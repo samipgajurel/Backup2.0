@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Supervisor - Create Task</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <div id="navbar"></div>
+
+    <div class="content">
+      <div class="tile" style="max-width:900px;margin:0 auto;">
+        <div class="row">
+          <div>
+            <h2 style="margin:0">Create Task</h2>
+            <p class="help" style="margin-top:6px">Create a task for one of your assigned interns.</p>
+          </div>
+          <button class="btn-inline" id="refreshBtn" type="button">Refresh</button>
+        </div>
+
+        <div id="msg" class="msg"></div>
+
+        <div class="grid" style="margin-top:12px">
+          <div class="tile" style="grid-column: span 12;">
+            <div class="field">
+              <label for="internSelect">Select Intern</label>
+              <select id="internSelect"></select>
+            </div>
+
+            <div class="field" style="margin-top:10px">
+              <label for="title">Task Title</label>
+              <input id="title" type="text" placeholder="e.g., Complete Week 2 SEO Audit" />
+            </div>
+
+            <div class="field" style="margin-top:10px">
+              <label for="desc">Description</label>
+              <textarea id="desc" rows="5" style="width:100%;padding:11px 12px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--text);outline:none;"
+                placeholder="Write task details, deadlines, and expected output..."></textarea>
+            </div>
+
+            <div style="height:12px"></div>
+            <button class="btn" id="createBtn" type="button">Create Task</button>
+
+            <div class="help" style="margin-top:10px">
+              Endpoint: <code>/internships/supervisor/tasks/create/</code>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/theme.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/navbar.js"></script>
+
+  <script>
+    initTheme();
+    requireRole("SUPERVISOR");
+    renderNavbar();
+
+    const internSelect = document.getElementById("internSelect");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const createBtn = document.getElementById("createBtn");
+    const msg = document.getElementById("msg");
+
+    async function loadInterns() {
+      hideMsg(msg);
+      internSelect.innerHTML = "";
+
+      const res = await apiFetch("/internships/supervisor/interns/", { method: "GET" });
+      const raw = await res.text();
+      let data = [];
+      try { data = raw ? JSON.parse(raw) : []; } catch {}
+
+      if (!res.ok) {
+        showMsg(msg, (data.detail || `Failed to load interns (${res.status})`), "err");
+        return;
+      }
+
+      if (!Array.isArray(data) || data.length === 0) {
+        showMsg(msg, "No interns assigned to you yet. Ask admin to assign interns.", "err");
+        return;
+      }
+
+      internSelect.innerHTML = data.map(i =>
+        `<option value="${i.id}">${(i.full_name || i.email)} (${i.email})</option>`
+      ).join("");
+      showMsg(msg, `Loaded ✅ ${data.length} intern(s)`, "ok");
+    }
+
+    async function createTask() {
+      hideMsg(msg);
+
+      const intern = Number(internSelect.value);
+      const title = document.getElementById("title").value.trim();
+      const description = document.getElementById("desc").value.trim();
+
+      if (!intern) return showMsg(msg, "Please select an intern.", "err");
+      if (!title) return showMsg(msg, "Task title is required.", "err");
+
+      createBtn.disabled = true;
+      showMsg(msg, "Creating task…");
+
+      const res = await apiFetch("/internships/supervisor/tasks/create/", {
+        method: "POST",
+        body: JSON.stringify({ intern, title, description }),
+      });
+
+      const raw = await res.text();
+      let data = {};
+      try { data = raw ? JSON.parse(raw) : {}; } catch {}
+
+      if (!res.ok) {
+        showMsg(msg, data.detail || `Create task failed (${res.status})`, "err");
+        createBtn.disabled = false;
+        return;
+      }
+
+      showMsg(msg, "Task created ✅", "ok");
+      document.getElementById("title").value = "";
+      document.getElementById("desc").value = "";
+      createBtn.disabled = false;
+    }
+
+    refreshBtn.addEventListener("click", loadInterns);
+    createBtn.addEventListener("click", createTask);
+
+    loadInterns();
+  </script>
+</body>
+</html>

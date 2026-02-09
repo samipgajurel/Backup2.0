@@ -1,0 +1,260 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin - Assign Intern</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+
+<body>
+  <div class="app">
+    <div id="navbar"></div>
+
+    <div class="content">
+      <div class="tile">
+        <div class="row">
+          <div>
+            <h2 style="margin:0">Assign Intern to Supervisor</h2>
+            <p class="help" style="margin-top:6px">Assign / unassign interns using dropdown + button.</p>
+          </div>
+          <button class="btn-inline" id="refreshBtn" type="button">Refresh</button>
+        </div>
+
+        <div id="topMsg" class="msg"></div>
+
+        <!-- ASSIGN (TOP) -->
+        <div class="tile" style="margin-top:12px">
+          <h2 style="margin:0 0 10px 0">Assign</h2>
+
+          <div class="field">
+            <label for="internSelect">Intern</label>
+            <select id="internSelect"></select>
+          </div>
+
+          <div class="field" style="margin-top:10px">
+            <label for="supSelect">Supervisor</label>
+            <select id="supSelect"></select>
+          </div>
+
+          <div style="height:10px"></div>
+          <button class="btn" id="assignBtn" type="button">Assign</button>
+
+          <div id="msgAssign" class="msg" style="margin-top:10px"></div>
+
+          <div class="help" style="margin-top:8px">
+            Endpoint: <code>/internships/admin/assignments/assign/</code>
+          </div>
+        </div>
+
+        <!-- UNASSIGN (BOTTOM) -->
+        <div class="tile" style="margin-top:12px">
+          <h2 style="margin:0 0 10px 0">Unassign</h2>
+
+          <div class="field">
+            <label for="internSelect2">Intern</label>
+            <select id="internSelect2"></select>
+          </div>
+
+          <div style="height:10px"></div>
+          <button class="btn" id="unassignBtn" type="button">Unassign</button>
+
+          <div id="msgUnassign" class="msg" style="margin-top:10px"></div>
+
+          <div class="help" style="margin-top:8px">
+            Endpoint: <code>/internships/admin/assignments/unassign/</code>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/theme.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/navbar.js"></script>
+
+  <script>
+    initTheme();
+    requireAuthOrRedirect();
+    requireRole("ADMIN");
+    renderNavbar();
+
+    const refreshBtn = document.getElementById("refreshBtn");
+    const assignBtn = document.getElementById("assignBtn");
+    const unassignBtn = document.getElementById("unassignBtn");
+
+    const internSelect = document.getElementById("internSelect");
+    const supSelect = document.getElementById("supSelect");
+    const internSelect2 = document.getElementById("internSelect2");
+
+    const topMsg = document.getElementById("topMsg");
+    const msgAssign = document.getElementById("msgAssign");
+    const msgUnassign = document.getElementById("msgUnassign");
+
+    function showMsg(el, text, type) {
+      el.className = "msg show" + (type ? " " + type : "");
+      el.textContent = text;
+    }
+    function hideMsg(el) {
+      el.className = "msg";
+      el.textContent = "";
+    }
+    function escapeHtml(s) {
+      return String(s ?? "").replace(/[&<>"']/g, m => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+      }[m]));
+    }
+
+    async function loadData() {
+      hideMsg(topMsg);
+      hideMsg(msgAssign);
+      hideMsg(msgUnassign);
+
+      showMsg(topMsg, "Loading interns & supervisors…");
+
+      // reset selects
+      internSelect.innerHTML = "";
+      internSelect2.innerHTML = "";
+      supSelect.innerHTML = "";
+
+      try {
+        const res = await apiFetch("/internships/admin/assignments/data/", { method: "GET" });
+
+        const raw = await res.text();
+        let data = {};
+        try { data = raw ? JSON.parse(raw) : {}; } catch (e) {}
+
+        if (!res.ok) {
+          console.log("assignments/data error", res.status, raw);
+          const detail = data.detail || `Failed to load lists (${res.status}).`;
+          showMsg(topMsg, detail, "err");
+          return;
+        }
+
+        const interns = Array.isArray(data.interns) ? data.interns : [];
+        const supervisors = Array.isArray(data.supervisors) ? data.supervisors : [];
+
+        if (interns.length === 0) {
+          showMsg(topMsg, "No interns found in database (CSV import not done or roles not mapped).", "err");
+        }
+        if (supervisors.length === 0) {
+          showMsg(topMsg, "No supervisors found in database (CSV role mapping issue).", "err");
+        }
+
+        internSelect.innerHTML = interns.map(i =>
+          `<option value="${i.id}">${escapeHtml(i.full_name)} (${escapeHtml(i.email)})</option>`
+        ).join("");
+
+        internSelect2.innerHTML = internSelect.innerHTML;
+
+        supSelect.innerHTML = supervisors.map(s =>
+          `<option value="${s.id}">${escapeHtml(s.full_name)} (${escapeHtml(s.email)})</option>`
+        ).join("");
+
+        if (interns.length > 0 && supervisors.length > 0) {
+          showMsg(topMsg, `Loaded ✅ Interns: ${interns.length}, Supervisors: ${supervisors.length}`, "ok");
+        }
+
+      } catch (e) {
+        console.error(e);
+        showMsg(topMsg, "Network error: backend not reachable.", "err");
+      }
+    }
+
+    async function assign() {
+      hideMsg(msgAssign);
+      hideMsg(msgUnassign);
+
+      const internId = internSelect.value;
+      const supId = supSelect.value;
+
+      if (!internId || !supId) {
+        showMsg(msgAssign, "Select both intern and supervisor.", "err");
+        return;
+      }
+
+      assignBtn.disabled = true;
+      showMsg(msgAssign, "Assigning…");
+
+      try {
+        const res = await apiFetch("/internships/admin/assignments/assign/", {
+          method: "POST",
+          body: JSON.stringify({
+            intern_id: Number(internId),
+            supervisor_id: Number(supId),
+          }),
+        });
+
+        const raw = await res.text();
+        let data = {};
+        try { data = raw ? JSON.parse(raw) : {}; } catch (e) {}
+
+        if (!res.ok) {
+          console.log("assign error", res.status, raw);
+          showMsg(msgAssign, data.detail || `Assign failed (${res.status})`, "err");
+          return;
+        }
+
+        showMsg(msgAssign, "Assigned ✅", "ok");
+        await loadData();
+
+      } catch (e) {
+        console.error(e);
+        showMsg(msgAssign, "Network/API error.", "err");
+      } finally {
+        assignBtn.disabled = false;
+      }
+    }
+
+    async function unassign() {
+      hideMsg(msgAssign);
+      hideMsg(msgUnassign);
+
+      const internId = internSelect2.value;
+      if (!internId) {
+        showMsg(msgUnassign, "Select an intern.", "err");
+        return;
+      }
+
+      unassignBtn.disabled = true;
+      showMsg(msgUnassign, "Unassigning…");
+
+      try {
+        const res = await apiFetch("/internships/admin/assignments/unassign/", {
+          method: "POST",
+          body: JSON.stringify({
+            intern_id: Number(internId),
+          }),
+        });
+
+        const raw = await res.text();
+        let data = {};
+        try { data = raw ? JSON.parse(raw) : {}; } catch (e) {}
+
+        if (!res.ok) {
+          console.log("unassign error", res.status, raw);
+          showMsg(msgUnassign, data.detail || `Unassign failed (${res.status})`, "err");
+          return;
+        }
+
+        showMsg(msgUnassign, "Unassigned ✅", "ok");
+        await loadData();
+
+      } catch (e) {
+        console.error(e);
+        showMsg(msgUnassign, "Network/API error.", "err");
+      } finally {
+        unassignBtn.disabled = false;
+      }
+    }
+
+    refreshBtn.addEventListener("click", loadData);
+    assignBtn.addEventListener("click", assign);
+    unassignBtn.addEventListener("click", unassign);
+
+    loadData();
+  </script>
+</body>
+</html>

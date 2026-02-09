@@ -1,0 +1,100 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Intern - My Tasks</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="app">
+  <div id="navbar"></div>
+  <div class="content">
+    <div class="tile">
+      <div class="row">
+        <div>
+          <h2 style="margin:0">My Tasks</h2>
+          <p class="help" style="margin-top:6px">Tasks assigned by your supervisor.</p>
+        </div>
+        <button class="btn-inline" id="refreshBtn" type="button">Refresh</button>
+      </div>
+
+      <div id="msg" class="msg"></div>
+      <div class="hr"></div>
+
+      <div class="field">
+        <label>Filter</label>
+        <input id="search" type="text" placeholder="title / status..." />
+      </div>
+
+      <div class="help" id="countText" style="margin-top:10px">Loading…</div>
+      <div id="list" class="help" style="margin-top:10px"></div>
+      <p class="help" style="margin-top:10px">
+        To change status or submit report use:
+        <a href="intern_status.html">Task Status</a> • <a href="intern_report.html">Submit Report</a>
+      </p>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  initTheme(); renderNavbar();
+  const user=requireAuthOrRedirect();
+  if(user.role!=="INTERN") window.location.href="dashboard.html";
+
+  const msg=document.getElementById("msg");
+  const refreshBtn=document.getElementById("refreshBtn");
+  const search=document.getElementById("search");
+  const countText=document.getElementById("countText");
+  const list=document.getElementById("list");
+  let rows=[];
+
+  function showMsg(el,t,type="ok"){ el.classList.add("show"); el.classList.remove("ok","err"); el.classList.add(type==="ok"?"ok":"err"); el.textContent=t; }
+  function hideMsg(el){ el.classList.remove("show"); el.textContent=""; }
+
+  function render(){
+    const q=search.value.trim().toLowerCase();
+    const filtered=rows.filter(t =>
+      (t.title||"").toLowerCase().includes(q) ||
+      (t.status||"").toLowerCase().includes(q)
+    );
+    countText.textContent=`Showing ${filtered.length} / ${rows.length}`;
+    list.innerHTML="";
+    if(!filtered.length){ list.innerHTML="<i>No tasks</i>"; return; }
+
+    filtered.forEach(t=>{
+      const div=document.createElement("div");
+      div.style.borderBottom="1px solid var(--border)";
+      div.style.padding="10px 0";
+      div.innerHTML=`
+        <b>${t.title}</b> <span style="color:var(--muted)">(${t.status})</span><br/>
+        <div style="color:var(--muted)">Supervisor: ${t.supervisor_name || "-"}</div>
+        <div style="margin-top:6px; white-space:pre-wrap">${t.description || ""}</div>
+        <div style="color:var(--muted); margin-top:6px">Stars: ${t.star_rating ?? "-"} • ${t.created_at}</div>
+      `;
+      list.appendChild(div);
+    });
+  }
+
+  async function load(){
+    hideMsg(msg);
+    countText.textContent="Loading…"; list.innerHTML="";
+    try{
+      const res=await apiFetch("/internships/intern/tasks/",{method:"GET"});
+      const data=await res.json().catch(()=>[]);
+      if(!res.ok){ showMsg(msg, data.detail||"Failed","err"); countText.textContent="Failed."; return; }
+      rows=Array.isArray(data)?data:[];
+      render();
+    }catch{ showMsg(msg,"Network error","err"); countText.textContent="Network error."; }
+  }
+
+  refreshBtn.addEventListener("click", load);
+  search.addEventListener("input", render);
+  load();
+</script>
+</body>
+</html>

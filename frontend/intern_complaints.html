@@ -1,0 +1,126 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Intern - Queries/Complaints</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="app">
+  <div id="navbar"></div>
+  <div class="content">
+    <div class="tile">
+      <div class="row">
+        <div>
+          <h2 style="margin:0">Queries / Complaints</h2>
+          <p class="help" style="margin-top:6px">Send a query to your supervisor and view history.</p>
+        </div>
+        <button class="btn-inline" id="refreshBtn" type="button">Refresh</button>
+      </div>
+
+      <div id="msg" class="msg"></div>
+      <div class="hr"></div>
+
+      <div class="grid">
+        <div class="tile half">
+          <h2>Create</h2>
+          <div class="field">
+            <label>Subject</label>
+            <input id="subject" type="text" placeholder="Subject..." />
+          </div>
+          <div class="field">
+            <label>Message</label>
+            <textarea id="message" rows="5" placeholder="Explain your issue/query..."></textarea>
+          </div>
+          <button class="btn" id="sendBtn" type="button" style="max-width:220px">Send</button>
+        </div>
+
+        <div class="tile half">
+          <h2>History</h2>
+          <div class="help" id="countText">Loading…</div>
+          <div id="list" class="help" style="margin-top:10px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  initTheme(); renderNavbar();
+  const user=requireAuthOrRedirect();
+  if(user.role!=="INTERN") window.location.href="dashboard.html";
+
+  const msg=document.getElementById("msg");
+  const refreshBtn=document.getElementById("refreshBtn");
+  const subjectEl=document.getElementById("subject");
+  const messageEl=document.getElementById("message");
+  const sendBtn=document.getElementById("sendBtn");
+  const countText=document.getElementById("countText");
+  const list=document.getElementById("list");
+
+  function showMsg(el,t,type="ok"){ el.classList.add("show"); el.classList.remove("ok","err"); el.classList.add(type==="ok"?"ok":"err"); el.textContent=t; }
+  function hideMsg(el){ el.classList.remove("show"); el.textContent=""; }
+
+  async function load(){
+    hideMsg(msg);
+    countText.textContent="Loading…";
+    list.innerHTML="";
+    try{
+      const res=await apiFetch("/internships/intern/complaints/",{method:"GET"});
+      const data=await res.json().catch(()=>[]);
+      if(!res.ok){ showMsg(msg, data.detail||"Failed","err"); countText.textContent="Failed."; return; }
+
+      const rows=Array.isArray(data)?data:[];
+      countText.textContent=`Total: ${rows.length}`;
+      if(!rows.length){ list.innerHTML="<i>No complaints yet</i>"; return; }
+
+      rows.forEach(c=>{
+        const div=document.createElement("div");
+        div.style.borderBottom="1px solid var(--border)";
+        div.style.padding="10px 0";
+        div.innerHTML=`
+          <b>${c.subject}</b> <span style="color:var(--muted)">(${c.status})</span><br/>
+          <div style="white-space:pre-wrap; margin-top:6px">${c.message}</div>
+          <div style="color:var(--muted); margin-top:6px">${c.created_at}</div>
+        `;
+        list.appendChild(div);
+      });
+
+    }catch{
+      showMsg(msg,"Network error","err");
+      countText.textContent="Network error.";
+    }
+  }
+
+  sendBtn.addEventListener("click", async ()=>{
+    hideMsg(msg);
+    const subject=subjectEl.value.trim();
+    const message=messageEl.value.trim();
+    if(!subject){ showMsg(msg,"Subject required","err"); return; }
+    if(!message){ showMsg(msg,"Message required","err"); return; }
+
+    sendBtn.disabled=true;
+    try{
+      const res=await apiFetch("/internships/intern/complaints/",{
+        method:"POST",
+        body: JSON.stringify({ subject, message })
+      });
+      const data=await res.json().catch(()=> ({}));
+      if(!res.ok){ showMsg(msg, data.detail||"Send failed","err"); return; }
+      showMsg(msg,"Sent ✅","ok");
+      subjectEl.value=""; messageEl.value="";
+      load();
+    }catch{ showMsg(msg,"Network error","err"); }
+    finally{ sendBtn.disabled=false; }
+  });
+
+  refreshBtn.addEventListener("click", load);
+  load();
+</script>
+</body>
+</html>
