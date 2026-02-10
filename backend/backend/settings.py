@@ -70,12 +70,13 @@ WSGI_APPLICATION = "backend.wsgi.application"
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
 if DATABASE_URL:
     DATABASES = {
         "default": dj_database_url.parse(
             DATABASE_URL,
             conn_max_age=600,
-            ssl_require=False,   # Railway MySQL usually expects SSL
         )
     }
 else:
