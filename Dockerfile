@@ -5,16 +5,23 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# ✅ requirements.txt is INSIDE backend/
+COPY backend/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
-COPY . .
+# ✅ copy whole repo
+COPY . /app
 
-RUN chmod +x start.sh
+# ✅ make start script executable
+RUN chmod +x /app/start.sh
+
+# ✅ Django lives in backend/
+WORKDIR /app/backend
 
 EXPOSE 8000
-CMD ["bash", "start.sh"]
+
+CMD ["bash", "/app/start.sh"]
