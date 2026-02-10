@@ -68,28 +68,28 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "backend.wsgi.application"
 
-# DATABASES = {
-#     "default": {
-#         "ENGINE": "django.db.backends.mysql",
-#         "NAME": os.getenv("DB_NAME", "interntrack"),
-#         "USER": os.getenv("DB_USER", "samip"),
-#         "PASSWORD": os.getenv("DB_PASSWORD", ""),
-#         "HOST": os.getenv("DB_HOST", "127.0.0.1"),
-#         "PORT": os.getenv("DB_PORT", "3306"),
-#         "OPTIONS": {"charset": "utf8mb4"},
-#     }
-# }
-
 DATABASES = {
-    "default": dj_database_url.config(
-        default=(
-            f"mysql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
-            f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
-        ),
-        conn_max_age=600,
-        ssl_require=False,
-    )
+    "default": {
+        "ENGINE": "django.db.backends.mysql",
+        "NAME": os.getenv("DB_NAME", "interntrack"),
+        "USER": os.getenv("DB_USER", "samip"),
+        "PASSWORD": os.getenv("DB_PASSWORD", ""),
+        "HOST": os.getenv("DB_HOST", "127.0.0.1"),
+        "PORT": os.getenv("DB_PORT", "3306"),
+        "OPTIONS": {"charset": "utf8mb4"},
+    }
 }
+
+# DATABASES = {
+#     "default": dj_database_url.config(
+#         default=(
+#             f"mysql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
+#             f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
+#         ),
+#         conn_max_age=600,
+#         ssl_require=False,
+#     )
+#}
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
