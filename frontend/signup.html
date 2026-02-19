@@ -77,93 +77,95 @@
 
   <!-- Page script -->
   <script>
-    // init UI
-    initTheme();
-    togglePassword("password", "pwToggleBtn");
-    togglePassword("password2", "pw2ToggleBtn");
+    window.addEventListener("DOMContentLoaded", () => {
+      // init UI
+      initTheme();
+      togglePassword("password", "pwToggleBtn");
+      togglePassword("password2", "pw2ToggleBtn");
 
-    const msg = document.getElementById("msg");
-    const form = document.getElementById("form");
-    const signupBtn = document.getElementById("signupBtn");
+      const msg = document.getElementById("msg");
+      const form = document.getElementById("form");
+      const signupBtn = document.getElementById("signupBtn");
 
-    const pw = document.getElementById("password");
-    const pw2 = document.getElementById("password2");
+      const pw = document.getElementById("password");
+      const pw2 = document.getElementById("password2");
 
-    const mLen = document.getElementById("m_len");
-    const mUpper = document.getElementById("m_upper");
-    const mNum = document.getElementById("m_num");
-    const mSpecial = document.getElementById("m_special");
+      const mLen = document.getElementById("m_len");
+      const mUpper = document.getElementById("m_upper");
+      const mNum = document.getElementById("m_num");
+      const mSpecial = document.getElementById("m_special");
 
-    function updateMeter() {
-      const c = passwordChecks(pw.value || "");
-      mLen.className = c.len ? "good" : "bad";
-      mUpper.className = c.upper ? "good" : "bad";
-      mNum.className = c.num ? "good" : "bad";
-      mSpecial.className = c.special ? "good" : "bad";
-    }
-    pw.addEventListener("input", updateMeter);
-    updateMeter();
-
-    bindEnterToSubmit(form, signupBtn);
-
-    async function doSignup() {
-      hideMsg(msg);
-      signupBtn.disabled = true;
-
-      const full_name = document.getElementById("full_name").value.trim();
-      const email = document.getElementById("email").value.trim().toLowerCase();
-      const role = document.getElementById("role").value;
-      const password = pw.value;
-      const password2 = pw2.value;
-
-      if (!passwordStrong(password)) {
-        showMsg(msg, "Password must be 8+ chars and include uppercase, number, and special character.", "err");
-        signupBtn.disabled = false;
-        return;
+      function updateMeter() {
+        const c = passwordChecks(pw.value || "");
+        mLen.className = c.len ? "good" : "bad";
+        mUpper.className = c.upper ? "good" : "bad";
+        mNum.className = c.num ? "good" : "bad";
+        mSpecial.className = c.special ? "good" : "bad";
       }
-      if (password !== password2) {
-        showMsg(msg, "Passwords do not match.", "err");
-        signupBtn.disabled = false;
-        return;
+      pw.addEventListener("input", updateMeter);
+      updateMeter();
+
+      // Optional: allow Enter to submit if your api.js provides it
+      if (typeof bindEnterToSubmit === "function") {
+        bindEnterToSubmit(form, signupBtn);
       }
 
-      try {
-        const res = await apiFetch("/accounts/signup/", {
-          method: "POST",
-          body: JSON.stringify({ full_name, email, role, password })
-        });
+      async function doSignup() {
+        hideMsg(msg);
+        signupBtn.disabled = true;
 
-        const data = await res.json().catch(() => ({}));
+        const full_name = document.getElementById("full_name").value.trim();
+        const email = document.getElementById("email").value.trim().toLowerCase();
+        const role = document.getElementById("role").value;
+        const password = pw.value;
+        const password2 = pw2.value;
 
-        if (!res.ok) {
-          // If backend tells verify email, redirect to webmail
-          if (data && data.action === "VERIFY_EMAIL" && data.redirect_url) {
-            showMsg(msg, data.detail || "Please verify your email.", "err");
-            setTimeout(() => window.location.href = data.redirect_url, 1200);
-            return;
-          }
-
-          showMsg(msg, data.detail || "Signup failed.", "err");
+        if (!passwordStrong(password)) {
+          showMsg(msg, "Password must be 8+ chars and include uppercase, number, and special character.", "err");
+          signupBtn.disabled = false;
+          return;
+        }
+        if (password !== password2) {
+          showMsg(msg, "Passwords do not match.", "err");
+          signupBtn.disabled = false;
           return;
         }
 
-        // Success -> show then redirect
-        showMsg(msg, data.detail || "Signup successful. Please verify your email in webmail.", "ok");
-        form.reset();
-        updateMeter();
+        try {
+          const res = await apiFetch("/accounts/signup/", {
+            method: "POST",
+            body: JSON.stringify({ full_name, email, role, password })
+          });
 
-        const redirectUrl = data.redirect_url || "https://webmail.migadu.com/";
-        setTimeout(() => window.location.href = redirectUrl, 1200);
+          const data = await res.json().catch(() => ({}));
 
-      } catch (e) {
-        console.error(e);
-        showMsg(msg, "Network error. Is backend running?", "err");
-      } finally {
-        signupBtn.disabled = false;
+          if (!res.ok) {
+            if (data && data.action === "VERIFY_EMAIL" && data.redirect_url) {
+              showMsg(msg, data.detail || "Please verify your email.", "err");
+              setTimeout(() => window.location.href = data.redirect_url, 1200);
+              return;
+            }
+            showMsg(msg, data.detail || "Signup failed.", "err");
+            return;
+          }
+
+          showMsg(msg, data.detail || "Signup successful. Please verify your email in webmail.", "ok");
+          form.reset();
+          updateMeter();
+
+          const redirectUrl = data.redirect_url || "https://webmail.migadu.com/";
+          setTimeout(() => window.location.href = redirectUrl, 1200);
+
+        } catch (e) {
+          console.error(e);
+          showMsg(msg, "Network error. Is backend running?", "err");
+        } finally {
+          signupBtn.disabled = false;
+        }
       }
-    }
 
-    signupBtn.addEventListener("click", doSignup);
+      signupBtn.addEventListener("click", doSignup);
+    });
   </script>
 </body>
 </html>
