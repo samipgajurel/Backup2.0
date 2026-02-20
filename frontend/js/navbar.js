@@ -1,83 +1,114 @@
 // frontend/js/navbar.js
+// Uses existing CSS classes: .navbar, .nav-inner, .nav-left, .nav-links, .nav-right, .logo, .badge
+// Requires auth.js: getUser(), logout()
 
-function renderNavbar() {
-  const nav = document.getElementById("navbar");
-  if (!nav) return;
+(function () {
+  "use strict";
 
-  const user = (typeof getUser === "function") ? getUser() : null;
-  const role = (user?.role || "GUEST").toUpperCase();
-
-  const links = [];
-  links.push({ label: "Dashboard", href: "dashboard.html" });
-
-  if (role === "ADMIN") {
-    links.push({ label: "Analytics", href: "admin_analytics.html" });
-    links.push({ label: "Assign Interns", href: "admin_assign.html" });
-    links.push({ label: "Attendance", href: "admin_attendance.html" });
-    links.push({ label: "Complaints", href: "admin_complaints.html" });
-    links.push({ label: "Monthly Reports", href: "admin_reports.html" });
-    links.push({ label: "Activity Log", href: "admin_activity.html" });
-    links.push({ label: "Users", href: "admin_users.html" });
+  function esc(s) {
+    return String(s || "").replace(/[&<>"']/g, (m) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;",
+    }[m]));
   }
 
-  if (role === "SUPERVISOR") {
-    links.push({ label: "My Interns", href: "sup_interns.html" });
-
-    // ✅ FIXED to match your folder screenshot:
-    links.push({ label: "Create Task", href: "sup_create_tasks.html" });
-    links.push({ label: "Tasks", href: "sup_task.html" });
-    links.push({ label: "Rate/Feedback", href: "sup_rate.html" });
-
-    links.push({ label: "Attendance", href: "sup_attendance.html" });
-    links.push({ label: "Reports", href: "sup_reports.html" });
-    links.push({ label: "Complaints", href: "sup_complaints.html" });
-    links.push({ label: "Monthly Progress", href: "sup_monthly_progress.html" });
+  function activeFile() {
+    return (location.pathname || "").split("/").pop() || "";
   }
 
-  if (role === "INTERN") {
-    links.push({ label: "My Tasks", href: "intern_tasks.html" });
-    links.push({ label: "Task Status", href: "intern_status.html" });
-    links.push({ label: "Submit Report", href: "intern_report.html" });
-    links.push({ label: "Attendance", href: "intern_attendance.html" });
-    links.push({ label: "Feedback", href: "intern_feedback.html" });
-    links.push({ label: "My Supervisor", href: "intern_supervisor.html" });
-    links.push({ label: "Complaints", href: "intern_complaints.html" });
+  function linksFor(role) {
+    const r = String(role || "").toUpperCase();
+
+    if (r === "ADMIN") {
+      return [
+        ["admin_dashboard.html", "Dashboard"],
+        ["admin_interns.html", "Interns"],
+        ["admin_tasks.html", "Tasks"],
+        ["admin_reports.html", "Reports"],
+      ];
+    }
+
+    if (r === "SUPERVISOR") {
+      return [
+        ["dashboard.html", "Dashboard"],
+        ["sup_tasks.html", "Tasks"],
+        ["sup_rate.html", "Rate"],
+        ["sup_reports.html", "Reports"],
+      ];
+    }
+
+    // INTERN
+    return [
+      ["dashboard.html", "Dashboard"],
+      ["intern_tasks.html", "My Tasks"],
+      ["intern_reports.html", "Reports"],
+      ["intern_complaints.html", "Complaints"],
+    ];
   }
 
-  nav.innerHTML = `
-    <div class="navbar">
-      <div class="nav-inner">
-        <div class="nav-left">
-          <a class="logo" href="dashboard.html">Codavatar InternTrack</a>
-          <span class="badge">${role}${user?.full_name ? ` • ${user.full_name}` : ""}</span>
-        </div>
+  function ensureMount() {
+    let mount = document.getElementById("navbarMount");
+    if (mount) return mount;
 
-        <div class="nav-links" id="navLinks"></div>
+    mount = document.createElement("div");
+    mount.id = "navbarMount";
+    document.body.prepend(mount);
+    return mount;
+  }
 
-        <div class="nav-right">
-          <button class="btn-inline" type="button" id="themeBtn">🌙/☀️ Theme</button>
-          <button class="btn-inline" id="logoutBtn" type="button">Logout</button>
+  function renderNavbar() {
+    const user = typeof window.getUser === "function" ? window.getUser() : null;
+    if (!user) return;
+
+    const mount = ensureMount();
+    const active = activeFile();
+
+    const role = esc(user.role || "");
+    const name = esc(user.full_name || user.name || user.email || "User");
+    const links = linksFor(user.role);
+
+    const linksHtml = links.map(([href, label]) => {
+      const isActive = href === active;
+      return `
+        <a href="${href}" style="${isActive ? 'border-color: rgba(79,140,255,.55); background: rgba(79,140,255,.10);' : ''}">
+          ${esc(label)}
+        </a>`;
+    }).join("");
+
+    mount.innerHTML = `
+      <div class="navbar">
+        <div class="nav-inner">
+          <div class="nav-left">
+            <a class="logo" href="dashboard.html">Codavatar InternTrack</a>
+            <span class="badge">${role}</span>
+
+            <div class="nav-links">
+              ${linksHtml}
+            </div>
+          </div>
+
+          <div class="nav-right">
+            <span class="badge">${name}</span>
+            <button class="btn-inline" type="button" id="logoutBtn">Logout</button>
+          </div>
         </div>
       </div>
-    </div>
-  `;
+    `;
 
-  const navLinks = document.getElementById("navLinks");
-  navLinks.innerHTML = links.map(l => `<a href="${l.href}">${l.label}</a>`).join("");
-
-  // theme button
-  const themeBtn = document.getElementById("themeBtn");
-  themeBtn.addEventListener("click", () => {
-    if (typeof toggleTheme === "function") toggleTheme();
-  });
-
-  // ✅ logout button always works
-  const logoutBtn = document.getElementById("logoutBtn");
-  logoutBtn.addEventListener("click", () => {
-    if (typeof logout === "function") logout();
-    else {
-      localStorage.clear();
-      window.location.replace("login.html");
+    const logoutBtn = document.getElementById("logoutBtn");
+    if (logoutBtn) {
+      logoutBtn.addEventListener("click", () => {
+        if (typeof window.logout === "function") window.logout();
+        else {
+          localStorage.clear();
+          location.href = "login.html";
+        }
+      });
     }
-  });
-}
+  }
+
+  window.renderNavbar = renderNavbar;
+})();

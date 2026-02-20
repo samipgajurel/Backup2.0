@@ -1,56 +1,220 @@
-<!doctype html><html><head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Supervisor - Star Rating</title><link rel="stylesheet" href="css/style.css"/>
-</head><body>
-<script src="js/theme.js"></script>
-<script src="js/api.js"></script>
-<script src="js/auth.js"></script>
-<script src="js/navbar.js"></script>
-<script>requireRole("SUPERVISOR"); renderNavbar();</script>
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Supervisor - Star Rating</title>
+  <link rel="stylesheet" href="css/style.css"/>
+</head>
 
-<div class="container">
-  <div class="card">
-    <h2>Give Progress (Star Rating) + Feedback</h2>
+<body>
+  <!-- Scripts (order matters) -->
+  <script src="js/theme.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/navbar.js"></script>
 
-    <label>Select Task</label>
-    <select id="taskSelect"></select>
+  <!-- Navbar mount -->
+  <div id="navbarMount"></div>
 
-    <label>Stars (1-5)</label>
-    <input id="stars" type="number" min="1" max="5" value="5"/>
+  <div class="container">
+    <div class="card" style="max-width:720px;">
+      <div class="brand">
+        <div>
+          <h1 style="margin:0;">Give Progress</h1>
+          <small>Star rating + feedback for an intern task</small>
+        </div>
+        <button class="toggle" type="button" onclick="toggleTheme()">🌙/☀️ Theme</button>
+      </div>
 
-    <label>Feedback</label>
-    <textarea id="feedback"></textarea>
+      <div id="msg" class="msg"></div>
 
-    <div style="height:10px"></div>
-    <button class="btn primary" onclick="rate()">Submit</button>
-    <p id="msg" class="helper"></p>
+      <form id="rateForm" class="form" autocomplete="off">
+        <div class="field">
+          <label for="taskSelect">Select Task</label>
+          <select id="taskSelect" required>
+            <option value="">Loading tasks...</option>
+          </select>
+          <div class="help">Choose a task assigned to your interns</div>
+        </div>
+
+        <div class="field">
+          <label>Stars</label>
+
+          <!-- clickable stars (styled inline so you don't need extra CSS) -->
+          <div id="starRow" style="
+            display:flex; align-items:center; gap:8px;
+            padding:10px 12px; border:1px solid var(--border);
+            border-radius: 14px; background: rgba(255,255,255,.03);
+          ">
+            <button type="button" class="starBtn" data-v="1" style="border:none;background:transparent;font-size:22px;cursor:pointer;opacity:.35;">★</button>
+            <button type="button" class="starBtn" data-v="2" style="border:none;background:transparent;font-size:22px;cursor:pointer;opacity:.35;">★</button>
+            <button type="button" class="starBtn" data-v="3" style="border:none;background:transparent;font-size:22px;cursor:pointer;opacity:.35;">★</button>
+            <button type="button" class="starBtn" data-v="4" style="border:none;background:transparent;font-size:22px;cursor:pointer;opacity:.35;">★</button>
+            <button type="button" class="starBtn" data-v="5" style="border:none;background:transparent;font-size:22px;cursor:pointer;opacity:.35;">★</button>
+            <span id="starsText" class="help" style="margin-left:10px;">5/5</span>
+          </div>
+
+          <div class="input-row" style="margin-top:10px;">
+            <input id="stars" type="number" min="1" max="5" value="5" required />
+            <button class="btn-secondary" type="button" id="clearBtn" style="width:auto;">Clear</button>
+          </div>
+          <div class="help">1 = poor, 5 = excellent</div>
+        </div>
+
+        <div class="field">
+          <label for="feedback">Feedback</label>
+          <textarea id="feedback" rows="5" placeholder="Write feedback clearly..." style="
+            width:100%; padding:11px 12px; border-radius:12px;
+            border:1px solid var(--border); background: transparent;
+            color: var(--text); outline:none;
+          "></textarea>
+        </div>
+
+        <button id="submitBtn" class="btn" type="submit">Submit</button>
+      </form>
+    </div>
   </div>
-</div>
 
-<script>
-let tasks = [];
-async function loadTasks(){
-  const res = await apiFetch("/internships/supervisor/tasks/", {method:"GET"});
-  tasks = await res.json().catch(()=>[]);
-  if(!res.ok) return setMsg("Failed to load tasks", true);
+  <script>
+    window.addEventListener("DOMContentLoaded", () => {
+      // Auth + theme + navbar
+      requireRole("SUPERVISOR");
+      if (typeof initTheme === "function") initTheme();
+      if (typeof renderNavbar === "function") renderNavbar();
 
-  taskSelect.innerHTML = tasks.map(t=>`<option value="${t.id}">${t.id} - ${escapeHtml(t.title)} (${escapeHtml(t.intern_email)})</option>`).join("");
-}
+      // Elements
+      const taskSelect = document.getElementById("taskSelect");
+      const starsInput = document.getElementById("stars");
+      const feedback = document.getElementById("feedback");
+      const msg = document.getElementById("msg");
+      const form = document.getElementById("rateForm");
+      const submitBtn = document.getElementById("submitBtn");
+      const clearBtn = document.getElementById("clearBtn");
+      const starsText = document.getElementById("starsText");
+      const starBtns = Array.from(document.querySelectorAll(".starBtn"));
 
-async function rate(){
-  const id = taskSelect.value;
-  const res = await apiFetch(`/internships/supervisor/tasks/${id}/rate/`, {
-    method:"POST",
-    body: { star_rating: Number(stars.value), supervisor_feedback: feedback.value.trim() }
-  });
-  const data = await res.json().catch(()=>({}));
-  if(!res.ok) return setMsg(data.detail||"Failed", true);
-  setMsg("Saved ✅");
-  feedback.value="";
-}
+      function escapeHtml(s){
+        return String(s || "").replace(/[&<>"']/g, m => ({
+          "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+        }[m]));
+      }
 
-function setMsg(t,bad=false){ msg.className=bad?"helper bad":"helper ok"; msg.innerText=t; }
-function escapeHtml(s){ return String(s).replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[m])); }
-loadTasks();
-</script>
-</body></html>
+      function show(t, type){
+        if (typeof showMsg === "function") return showMsg(msg, t, type);
+        msg.className = "msg show " + (type || "");
+        msg.textContent = t;
+      }
+      function clearMsg(){
+        if (typeof hideMsg === "function") return hideMsg(msg);
+        msg.className = "msg";
+        msg.textContent = "";
+      }
+
+      function setStars(val){
+        const v = Math.max(1, Math.min(5, Number(val) || 5));
+        starsInput.value = String(v);
+        starsText.textContent = `${v}/5`;
+
+        starBtns.forEach(btn => {
+          const b = Number(btn.dataset.v);
+          btn.style.opacity = (b <= v) ? "1" : ".35";
+        });
+      }
+
+      starBtns.forEach(btn => {
+        btn.addEventListener("click", () => setStars(btn.dataset.v));
+      });
+      starsInput.addEventListener("input", () => setStars(starsInput.value));
+
+      setStars(5);
+
+      let tasks = [];
+
+      async function loadTasks(){
+        clearMsg();
+        taskSelect.innerHTML = `<option value="">Loading tasks...</option>`;
+
+        const res = await apiFetch("/internships/supervisor/tasks/", { method:"GET" });
+        const data = await res.json().catch(() => []);
+
+        if (!res.ok) {
+          taskSelect.innerHTML = `<option value="">-- Failed to load tasks --</option>`;
+          show(data.detail || "Failed to load tasks", "err");
+          return;
+        }
+
+        tasks = Array.isArray(data) ? data : [];
+        if (!tasks.length) {
+          taskSelect.innerHTML = `<option value="">No tasks available</option>`;
+          return;
+        }
+
+        taskSelect.innerHTML =
+          `<option value="">-- Select a task --</option>` +
+          tasks.map(t => {
+            const title = escapeHtml(t.title || "");
+            const email = escapeHtml(t.intern_email || "");
+            return `<option value="${t.id}">${t.id} - ${title} (${email})</option>`;
+          }).join("");
+      }
+
+      async function rate(){
+        clearMsg();
+
+        const id = taskSelect.value;
+        const starVal = Number(starsInput.value);
+
+        if (!id) return show("Please select a task.", "err");
+        if (!(starVal >= 1 && starVal <= 5)) return show("Stars must be between 1 and 5.", "err");
+
+        submitBtn.disabled = true;
+
+        try {
+          const payload = {
+            star_rating: starVal,
+            supervisor_feedback: feedback.value.trim()
+          };
+
+          const res = await apiFetch(`/internships/supervisor/tasks/${id}/rate/`, {
+            method: "POST",
+            body: JSON.stringify(payload)   // ✅ FIX: send JSON string
+          });
+
+          const out = await res.json().catch(() => ({}));
+
+          if (!res.ok) {
+            show(out.detail || "Failed to save rating.", "err");
+            return;
+          }
+
+          show("Saved ✅", "ok");
+          feedback.value = "";
+          taskSelect.value = "";
+          setStars(5);
+
+        } catch (e) {
+          console.error(e);
+          show("Network error. Is backend running?", "err");
+        } finally {
+          submitBtn.disabled = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        rate();
+      });
+
+      clearBtn.addEventListener("click", () => {
+        clearMsg();
+        feedback.value = "";
+        taskSelect.value = "";
+        setStars(5);
+      });
+
+      loadTasks();
+    });
+  </script>
+</body>
+</html>
