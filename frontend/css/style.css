@@ -376,3 +376,128 @@ a:hover{text-decoration:underline}
   cursor:pointer;
 }
 .btn-inline:hover{border-color: rgba(79,140,255,.6)}
+
+/* =====================================================
+   GLOBAL DARK THEME TEXT + STAR IMPROVEMENTS
+   (Added for rating UI + readability)
+   ===================================================== */
+
+/* Stronger contrast variables */
+:root{
+  --text-strong:#f8fafc;
+  --text-soft:#cbd5e1;
+
+  --star-active:#ffd166;  /* GOLD */
+  --star-idle:#667085;
+}
+
+/* Light theme overrides */
+:root[data-theme="light"]{
+  --text-strong:#0f172a;
+  --text-soft:#475569;
+
+  --star-active:#f59e0b;
+  --star-idle:#cbd5e1;
+}
+
+/* Improve readability globally */
+body{
+  color: var(--text-strong);
+}
+
+.help,
+.brand small,
+.badge,
+.tile p,
+.kpi .label,
+.field label{
+  color: var(--text-soft);
+}
+
+/* Inputs readable */
+.field input,
+.field select,
+textarea{
+  color: var(--text-strong);
+}
+
+/* =====================================================
+   STAR RATING UI (All Pages)
+   ===================================================== */
+
+.starBtn{
+  border:none;
+  background:transparent;
+  font-size:24px;
+  cursor:pointer;
+  color:var(--star-idle);
+  transition: all .15s ease;
+}
+
+/* Hover preview */
+.starBtn:hover{
+  transform:scale(1.15);
+  color:var(--star-active);
+}
+
+/* Selected stars */
+.starBtn.active{
+  color:var(--star-active);
+}
+
+/* Locked stars */
+.starBtn:disabled{
+  cursor:not-allowed;
+  opacity:.9;
+}
+
+/* Subtle glow ONLY in dark mode */
+:root:not([data-theme="light"]) .starBtn.active{
+  text-shadow:0 0 8px rgba(255,209,102,.45);
+}
+/* =====================================================
+   PATCH: MAKE ALL TEXT READABLE (ALL PAGES)
+   - fixes <select> dropdown options invisible
+   - fixes inputs/textarea placeholders
+   - does NOT change UI layout
+   ===================================================== */
+
+/* 1) Map old variables to strong readable ones (no UI change) */
+:root{
+  --text: var(--text-strong);
+  --muted: var(--text-soft);
+}
+:root[data-theme="light"]{
+  --text: var(--text-strong);
+  --muted: var(--text-soft);
+}
+
+/* 2) Ensure common text elements inherit readable color */
+p, span, div, small, li, td, th, label{
+  color: inherit;
+}
+
+/* 3) CRITICAL FIX: select/options text not visible in dark mode */
+select{
+  color: var(--text) !important;
+  background-color: transparent; /* keep your UI */
+}
+
+option{
+  color: var(--text) !important;
+  background-color: var(--card) !important; /* fixes white dropdown */
+}
+
+/* 4) Make placeholder readable (inputs/textareas) */
+input::placeholder,
+textarea::placeholder{
+  color: color-mix(in srgb, var(--muted) 75%, transparent) !important;
+}
+
+/* 5) Ensure textarea matches your input style */
+textarea{
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 11px 12px;
+}
