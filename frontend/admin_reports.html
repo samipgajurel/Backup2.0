@@ -86,7 +86,6 @@
     requireAuthOrRedirect();
     requireRole("ADMIN");
     renderNavbar();
-    window.logout = logout; // ensure navbar logout works
 
     const yearSel = document.getElementById("year");
     const monthSel = document.getElementById("month");
@@ -97,7 +96,7 @@
     const summaryBox = document.getElementById("summaryBox");
     const tbody = document.getElementById("tbody");
 
-    // ✅ REAL endpoints from your Django URL list
+    // Backend routes (api.js already adds: http://127.0.0.1:8000/api + path)
     const CSV_ENDPOINT = "/internships/admin/reports/monthly/csv/";
     const PDF_ENDPOINT = "/internships/admin/reports/monthly/pdf/";
 
@@ -118,7 +117,6 @@
     }
 
     function fillYearMonth() {
-      // Year dropdown
       const now = new Date();
       const thisYear = now.getFullYear();
 
@@ -128,7 +126,6 @@
       yearSel.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join("");
       yearSel.value = String(thisYear);
 
-      // Month dropdown (1-12)
       const monthNames = [
         "January","February","March","April","May","June",
         "July","August","September","October","November","December"
@@ -138,7 +135,6 @@
         return `<option value="${m}">${name}</option>`;
       }).join("");
 
-      // default current month
       monthSel.value = String(now.getMonth() + 1);
     }
 
@@ -162,18 +158,11 @@
         const c = text[i];
         const next = text[i + 1];
 
-        if (c === '"' && inQuotes && next === '"') {
-          val += '"'; i++;
-          continue;
-        }
-        if (c === '"') {
-          inQuotes = !inQuotes;
-          continue;
-        }
-        if (c === "," && !inQuotes) {
-          cur.push(val); val = "";
-          continue;
-        }
+        if (c === '"' && inQuotes && next === '"') { val += '"'; i++; continue; }
+        if (c === '"') { inQuotes = !inQuotes; continue; }
+
+        if (c === "," && !inQuotes) { cur.push(val); val = ""; continue; }
+
         if ((c === "\n" || c === "\r") && !inQuotes) {
           if (c === "\r" && next === "\n") i++;
           cur.push(val); val = "";
@@ -181,8 +170,10 @@
           cur = [];
           continue;
         }
+
         val += c;
       }
+
       cur.push(val);
       if (cur.length > 1 || cur[0] !== "") rows.push(cur);
 
@@ -204,8 +195,6 @@
     }
 
     function renderFromRows(rows) {
-      // Try to map common header names (your backend may vary)
-      // We'll accept flexible CSV headers
       const pick = (obj, keys) => {
         for (const k of keys) {
           const found = Object.keys(obj).find(h => h.toLowerCase() === k.toLowerCase());
@@ -214,7 +203,6 @@
         return "";
       };
 
-      // Build normalized list
       const items = rows.map(r => ({
         intern: pick(r, ["Intern", "Name", "Full Name", "intern", "full_name"]),
         email: pick(r, ["Email", "email"]),
@@ -223,9 +211,8 @@
         attendance: toNum(pick(r, ["Attendance", "attendance"])),
         reports: toNum(pick(r, ["Reports", "reports"])),
         complaints: toNum(pick(r, ["Complaints", "complaints"]))
-      })).filter(x => x.intern || x.email); // remove blank rows
+      })).filter(x => x.intern || x.email);
 
-      // Totals summary
       const totals = items.reduce((a, x) => ({
         interns: a.interns + 1,
         tasks_created: a.tasks_created + x.tasks_created,
@@ -244,7 +231,7 @@
       summaryBox.appendChild(kpi("Complaints", totals.complaints));
 
       if (!items.length) {
-        tbody.innerHTML = `<tr><td colspan="7" style="padding:12px">No rows found in CSV for this month.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" style="padding:12px">No rows found for this month.</td></tr>`;
         return;
       }
 
@@ -268,12 +255,11 @@
 
       try {
         const res = await apiFetch(CSV_ENDPOINT + qs(), { method: "GET" });
-
         const csvText = await res.text();
 
         if (!res.ok) {
           console.log("monthly csv error", res.status, csvText);
-          showMsg(`Failed to load reports (${res.status}).`, "err");
+          showMsg(`Failed to load reports (${res.status}): ${csvText.slice(0, 120)}`, "err");
           tbody.innerHTML = `<tr><td colspan="7" style="padding:12px">Failed</td></tr>`;
           return;
         }
@@ -302,11 +288,29 @@
       }
     }
 
-    function exportCSV() {
-      window.open(`http://127.0.0.1:8000/api${CSV_ENDPOINT}${qs()}`, "_blank");
+    // ✅ EXPORT WITH JWT HEADERS (NO window.open)
+    async function exportCSV() {
+      try {
+        hideMsg();
+        const file = `monthly_report_${yearSel.value}_${String(monthSel.value).padStart(2,"0")}.csv`;
+        await apiDownload(CSV_ENDPOINT + qs(), file);
+        showMsg("CSV downloaded ✅", "ok");
+      } catch (e) {
+        console.error(e);
+        showMsg(e.message || "CSV download failed.", "err");
+      }
     }
-    function exportPDF() {
-      window.open(`http://127.0.0.1:8000/api${PDF_ENDPOINT}${qs()}`, "_blank");
+
+    async function exportPDF() {
+      try {
+        hideMsg();
+        const file = `monthly_report_${yearSel.value}_${String(monthSel.value).padStart(2,"0")}.pdf`;
+        await apiDownload(PDF_ENDPOINT + qs(), file);
+        showMsg("PDF downloaded ✅", "ok");
+      } catch (e) {
+        console.error(e);
+        showMsg(e.message || "PDF download failed.", "err");
+      }
     }
 
     refreshBtn.addEventListener("click", loadReports);
