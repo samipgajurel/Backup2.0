@@ -1,58 +1,91 @@
 // frontend/js/api.js
 
-// Base API URL (strip trailing slashes)
-const API_BASE = (window.API_BASE || "http://127.0.0.1:8000/api").replace(/\/+$/, "");
+const API_BASE = (window.API_BASE || "http://127.0.0.1:8000/api").replace(/\/+$/,"");
 
-function apiUrl(path) {
-  if (!path) path = "/";
-  if (!path.startsWith("/")) path = "/" + path;
+function apiUrl(path){
+  if(!path.startsWith("/")) path = "/" + path;
   return API_BASE + path;
 }
 
-async function apiFetch(path, options = {}) {
-  const access = localStorage.getItem("access");
+function getAccess(){
+  let t = localStorage.getItem("access") || "";
+  t = t.replace(/^Bearer\s+/i, "").trim();
+  // remove accidental quotes
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+    t = t.slice(1, -1).trim();
+  }
+  return t;
+}
+
+function getRefresh(){
+  let t = localStorage.getItem("refresh") || "";
+  t = t.replace(/^Bearer\s+/i, "").trim();
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+    t = t.slice(1, -1).trim();
+  }
+  return t;
+}
+
+async function refreshAccessToken(){
+  const refresh = getRefresh();
+  if(!refresh) return false;
+
+  const res = await fetch(apiUrl("/token/refresh/"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify({ refresh })
+  });
+
+  if(!res.ok) return false;
+
+  const data = await res.json().catch(()=>null);
+  if(!data?.access) return false;
+
+  localStorage.setItem("access", data.access);
+  return true;
+}
+
+async function apiFetch(path, options = {}){
+  let access = getAccess();
 
   const headers = new Headers(options.headers || {});
   headers.set("Accept", headers.get("Accept") || "application/json");
 
-  // If body is a plain object, convert to JSON automatically
-  if (options.body && typeof options.body === "object" && !(options.body instanceof FormData)) {
-    if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-    options = { ...options, body: JSON.stringify(options.body) };
-  }
-
-  // If body is already a JSON string and no content-type set, set it
+  // JSON body support
   if (options.body && typeof options.body === "string" && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
-  // Add JWT
   if (access && !headers.has("Authorization")) {
     headers.set("Authorization", "Bearer " + access);
   }
 
-  return fetch(apiUrl(path), { ...options, headers });
+  let res = await fetch(apiUrl(path), { ...options, headers });
+
+  // ✅ if access expired/invalid -> try refresh once
+  if (res.status === 401) {
+    const cloned = await res.clone().text().catch(()=> "");
+    if (cloned.includes("token_not_valid") || cloned.includes("Given token not valid")) {
+      const ok = await refreshAccessToken();
+      if (ok) {
+        access = getAccess();
+        headers.set("Authorization", "Bearer " + access);
+        res = await fetch(apiUrl(path), { ...options, headers });
+      }
+    }
+  }
+
+  return res;
 }
 
-/**
- * Download helper for CSV/PDF/etc WITH JWT
- * Example:
- *   await apiDownload("/internships/admin/reports/monthly/csv/?year=2026&month=2", "report.csv")
- */
-async function apiDownload(path, filename) {
-  const access = localStorage.getItem("access");
+// ✅ Download helper for CSV/PDF (works with JWT + refresh)
+async function apiDownload(path, filename){
+  // use apiFetch so refresh logic works
+  const res = await apiFetch(path, { method: "GET", headers: { "Accept": "*/*" } });
 
-  const res = await fetch(apiUrl(path), {
-    method: "GET",
-    headers: {
-      "Authorization": access ? ("Bearer " + access) : "",
-      "Accept": "*/*"
-    }
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Download failed ${res.status}: ${text || "No response body"}`);
+  if(!res.ok){
+    const text = await res.text().catch(()=> "");
+    throw new Error(`Download failed ${res.status}: ${text}`);
   }
 
   const blob = await res.blob();
@@ -64,7 +97,6 @@ async function apiDownload(path, filename) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-
   URL.revokeObjectURL(url);
   return true;
 }
