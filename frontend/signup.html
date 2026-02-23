@@ -61,7 +61,8 @@
           </div>
         </div>
 
-        <button id="signupBtn" class="btn" type="button">Signup</button>
+        <!-- ✅ IMPORTANT: type="submit" so Enter works -->
+        <button id="signupBtn" class="btn" type="submit">Signup</button>
 
         <div class="footer">
           <a class="small-link" href="login.html">Back to login</a>
@@ -80,8 +81,24 @@
     window.addEventListener("DOMContentLoaded", () => {
       // init UI
       initTheme();
-      togglePassword("password", "pwToggleBtn");
-      togglePassword("password2", "pw2ToggleBtn");
+
+      // safe toggle binding (uses your helper if present, else fallback)
+      if (typeof togglePassword === "function") {
+        togglePassword("password", "pwToggleBtn");
+        togglePassword("password2", "pw2ToggleBtn");
+      } else {
+        const bindToggle = (inputId, btnId) => {
+          const inp = document.getElementById(inputId);
+          const btn = document.getElementById(btnId);
+          if (!inp || !btn) return;
+          btn.addEventListener("click", () => {
+            inp.type = (inp.type === "password") ? "text" : "password";
+            btn.textContent = (inp.type === "password") ? "Show" : "Hide";
+          });
+        };
+        bindToggle("password", "pwToggleBtn");
+        bindToggle("password2", "pw2ToggleBtn");
+      }
 
       const msg = document.getElementById("msg");
       const form = document.getElementById("form");
@@ -96,6 +113,7 @@
       const mSpecial = document.getElementById("m_special");
 
       function updateMeter() {
+        if (typeof passwordChecks !== "function") return;
         const c = passwordChecks(pw.value || "");
         mLen.className = c.len ? "good" : "bad";
         mUpper.className = c.upper ? "good" : "bad";
@@ -105,13 +123,16 @@
       pw.addEventListener("input", updateMeter);
       updateMeter();
 
-      // Optional: allow Enter to submit if your api.js provides it
+      // Optional: allow Enter to submit if your auth.js provides it
       if (typeof bindEnterToSubmit === "function") {
         bindEnterToSubmit(form, signupBtn);
       }
 
-      async function doSignup() {
-        hideMsg(msg);
+      async function doSignup(e) {
+        // ✅ prevent page reload
+        if (e && typeof e.preventDefault === "function") e.preventDefault();
+
+        if (typeof hideMsg === "function") hideMsg(msg);
         signupBtn.disabled = true;
 
         const full_name = document.getElementById("full_name").value.trim();
@@ -120,18 +141,28 @@
         const password = pw.value;
         const password2 = pw2.value;
 
-        if (!passwordStrong(password)) {
-          showMsg(msg, "Password must be 8+ chars and include uppercase, number, and special character.", "err");
+        // basic checks
+        if (!full_name || !email || !role || !password) {
+          if (typeof showMsg === "function") showMsg(msg, "Please fill all fields.", "err");
           signupBtn.disabled = false;
           return;
         }
+
+        // your strong-password rule (if helper exists)
+        if (typeof passwordStrong === "function" && !passwordStrong(password)) {
+          if (typeof showMsg === "function") showMsg(msg, "Password must be 8+ chars and include uppercase, number, and special character.", "err");
+          signupBtn.disabled = false;
+          return;
+        }
+
         if (password !== password2) {
-          showMsg(msg, "Passwords do not match.", "err");
+          if (typeof showMsg === "function") showMsg(msg, "Passwords do not match.", "err");
           signupBtn.disabled = false;
           return;
         }
 
         try {
+          // ✅ signup endpoint
           const res = await apiFetch("/accounts/signup/", {
             method: "POST",
             body: JSON.stringify({ full_name, email, role, password })
@@ -140,30 +171,39 @@
           const data = await res.json().catch(() => ({}));
 
           if (!res.ok) {
-            if (data && data.action === "VERIFY_EMAIL" && data.redirect_url) {
-              showMsg(msg, data.detail || "Please verify your email.", "err");
-              setTimeout(() => window.location.href = data.redirect_url, 1200);
+            // if backend sends redirect info even on error
+            if (data && data.redirect_url) {
+              if (typeof showMsg === "function") showMsg(msg, data.detail || "Please verify your email.", "err");
+              setTimeout(() => window.location.href = data.redirect_url, 900);
               return;
             }
-            showMsg(msg, data.detail || "Signup failed.", "err");
+            if (typeof showMsg === "function") showMsg(msg, data.detail || "Signup failed.", "err");
             return;
           }
 
-          showMsg(msg, data.detail || "Signup successful. Please verify your email in webmail.", "ok");
+          // ✅ SUCCESS: Always redirect to Migadu if redirect_url exists
+          const redirectUrl = data.redirect_url || "https://webmail.migadu.com/";
+          if (typeof showMsg === "function") showMsg(msg, data.detail || "Signup successful ✅ Redirecting to webmail for verification…", "ok");
+
+          // optional reset (won't stop redirect)
           form.reset();
           updateMeter();
 
-          const redirectUrl = data.redirect_url || "https://webmail.migadu.com/";
-          setTimeout(() => window.location.href = redirectUrl, 1200);
+          // ✅ redirect same tab
+          setTimeout(() => { window.location.href = redirectUrl; }, 700);
 
-        } catch (e) {
-          console.error(e);
-          showMsg(msg, "Network error. Is backend running?", "err");
+        } catch (err) {
+          console.error(err);
+          if (typeof showMsg === "function") showMsg(msg, "Network error. Is backend running?", "err");
         } finally {
           signupBtn.disabled = false;
         }
       }
 
+      // ✅ submit handler (works for button click + Enter)
+      form.addEventListener("submit", doSignup);
+
+      // keep click too (safe)
       signupBtn.addEventListener("click", doSignup);
     });
   </script>
