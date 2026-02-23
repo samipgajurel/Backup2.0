@@ -1,74 +1,87 @@
-const API_BASE = "http://127.0.0.1:8000/api";
+// frontend/js/api.js
 
-function clearSession() {
-  localStorage.removeItem("access");
-  localStorage.removeItem("refresh");
-  localStorage.removeItem("user");
+const API_BASE = (window.API_BASE || "http://127.0.0.1:8000/api").replace(/\/+$/,"");
+
+function apiUrl(path){
+  if(!path.startsWith("/")) path = "/" + path;
+  return API_BASE + path;
 }
 
-function logoutToLogin() {
-  clearSession();
-  window.location.href = "login.html";
+async function apiFetch(path, options = {}){
+  const access = localStorage.getItem("access");
+
+  const headers = new Headers(options.headers || {});
+  headers.set("Accept", "application/json");
+
+  // JSON body support
+  if (options.body && typeof options.body === "string" && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  // ✅ add JWT
+  if (access && !headers.has("Authorization")) {
+    headers.set("Authorization", "Bearer " + access);
+  }
+
+  return fetch(apiUrl(path), { ...options, headers });
 }
 
-async function refreshAccessToken() {
-  const refresh = localStorage.getItem("refresh");
-  if (!refresh) return false;
+// ✅ Download helper for CSV/PDF
+async function apiDownload(path, filename){
+  const access = localStorage.getItem("access");
 
-  const res = await fetch(`${API_BASE}/token/refresh/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh }),
+  const res = await fetch(apiUrl(path), {
+    method: "GET",
+    headers: {
+      "Authorization": access ? ("Bearer " + access) : "",
+      "Accept": "*/*"
+    }
   });
 
-  if (!res.ok) return false;
+  if(!res.ok){
+    const text = await res.text().catch(()=> "");
+    throw new Error(`Download failed ${res.status}: ${text}`);
+  }
 
-  const data = await res.json().catch(() => ({}));
-  if (!data.access) return false;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
 
-  localStorage.setItem("access", data.access);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename || "download";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
   return true;
 }
 
-async function apiFetch(path, options = {}) {
+window.apiFetch = apiFetch;
+window.apiDownload = apiDownload;
+window.API_BASE = API_BASE;
+
+
+async function apiDownload(path, filename){
   const access = localStorage.getItem("access");
+  const res = await fetch(API_BASE + path, {
+    method: "GET",
+    headers: { "Authorization": "Bearer " + access }
+  });
 
-  const headers = {
-    ...(options.headers || {}),
-  };
-
-  // ✅ Set JSON header only when body is plain object/string JSON, NOT FormData
-  const isFormData = (typeof FormData !== "undefined") && (options.body instanceof FormData);
-  if (options.body && !isFormData && !headers["Content-Type"]) {
-    headers["Content-Type"] = "application/json";
+  if(!res.ok){
+    const t = await res.text().catch(()=> "");
+    throw new Error(t || ("Failed: " + res.status));
   }
 
-  if (access) headers["Authorization"] = `Bearer ${access}`;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
 
-  let res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename || "download";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 
-  // ✅ If access token expired, try refresh once, then retry request
-  if (res.status === 401) {
-    const refreshed = await refreshAccessToken();
-    if (!refreshed) {
-      logoutToLogin();
-      return res;
-    }
-
-    const newAccess = localStorage.getItem("access");
-    const retryHeaders = {
-      ...headers,
-      Authorization: `Bearer ${newAccess}`,
-    };
-
-    res = await fetch(`${API_BASE}${path}`, { ...options, headers: retryHeaders });
-
-    // If still 401 -> logout
-    if (res.status === 401) {
-      logoutToLogin();
-      return res;
-    }
-  }
-
-  return res;
+  URL.revokeObjectURL(url);
 }

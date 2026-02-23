@@ -133,55 +133,139 @@ class AdminProgressView(APIView):
     permission_classes = [IsAdmin]
 
     def get(self, request):
-        qs = Task.objects.select_related("intern", "supervisor").order_by("-created_at")[:300]
-        return Response(TaskSerializer(qs, many=True).data)
+        year = int(request.query_params.get("year", timezone.now().year))
+        month = int(request.query_params.get("month", timezone.now().month))
+
+        # Filter month data
+        tasks = Task.objects.filter(created_at__year=year, created_at__month=month)
+        attendance = Attendance.objects.filter(date__year=year, date__month=month)
+        reports = TaskReport.objects.filter(created_at__year=year, created_at__month=month)
+        complaints = Complaint.objects.filter(created_at__year=year, created_at__month=month)
+
+        # -------- SUMMARY --------
+        summary = {
+            "tasks_created": tasks.count(),
+            "tasks_completed": tasks.filter(status="COMPLETED").count(),
+            "attendance_marked": attendance.count(),
+            "reports_submitted": reports.count(),
+            "complaints": complaints.count(),
+        }
+
+        # -------- PER INTERN TABLE --------
+        interns = User.objects.filter(role="INTERN")
+
+        rows = []
+        for intern in interns:
+            t = tasks.filter(intern=intern)
+            a = attendance.filter(intern=intern)
+            r = reports.filter(intern=intern)
+            c = complaints.filter(intern=intern)
+
+            rows.append({
+                "intern": intern.full_name,
+                "email": intern.email,
+                "tasks_created": t.count(),
+                "tasks_completed": t.filter(status="COMPLETED").count(),
+                "attendance": a.count(),
+                "reports": r.count(),
+                "complaints": c.count(),
+            })
+
+        return Response({
+            "summary": summary,
+            "rows": rows
+        })
 
 
-def _month_range(year: int, month: int):
-    last_day = calendar.monthrange(year, month)[1]
-    start = make_aware(datetime(year, month, 1, 0, 0, 0))
-    end = make_aware(datetime(year, month, last_day, 23, 59, 59))
-    return start, end
-
+# internships/views_admin.py
 
 class AdminMonthlyReportCSV(APIView):
     permission_classes = [IsAdmin]
 
     def get(self, request):
-        try:
-            year = int(request.query_params.get("year"))
-            month = int(request.query_params.get("month"))
-        except (TypeError, ValueError):
-            return Response({"detail": "year and month query params required"}, status=400)
+        year = int(request.query_params.get("year", timezone.now().year))
+        month = int(request.query_params.get("month", timezone.now().month))
 
-        start, end = _month_range(year, month)
-        tasks = (
-            Task.objects.select_related("intern", "supervisor")
-            .filter(created_at__range=(start, end))
-            .order_by("created_at")
-        )
+        qs = Task.objects.filter(created_at__year=year, created_at__month=month).select_related("intern", "supervisor")
 
-        # safe CSV (basic)
-        lines = ["task_id,intern_email,supervisor_email,title,status,star_rating,created_at"]
-        for t in tasks:
-            title = (t.title or "").replace('"', "'")
-            title = f'"{title}"'  # quote title to avoid comma issues
-            lines.append(
-                f"{t.id},{t.intern.email},{t.supervisor.email},{title},{t.status},{t.star_rating or ''},{t.created_at.isoformat()}"
-            )
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="monthly_report_{year}_{month:02d}.csv"'
 
-        resp = HttpResponse("\n".join(lines), content_type="text/csv; charset=utf-8")
-        resp["Content-Disposition"] = f'attachment; filename="monthly_report_{year}_{month}.csv"'
-        return resp
+        writer = csv.writer(response)
+        writer.writerow([
+            "Task ID", "Title", "Status",
+            "Intern Name", "Intern Email",
+            "Supervisor Name", "Supervisor Email",
+            "Star Rating", "Supervisor Feedback",
+            "Created At"
+        ])
+
+        for t in qs:
+            writer.writerow([
+                t.id,
+                getattr(t, "title", "") or "",
+                getattr(t, "status", "") or "",
+                getattr(getattr(t, "intern", None), "full_name", "") or "",
+                getattr(getattr(t, "intern", None), "email", "") or "",
+                getattr(getattr(t, "supervisor", None), "full_name", "") or "",
+                getattr(getattr(t, "supervisor", None), "email", "") or "",
+                getattr(t, "star_rating", "") or "",
+                (getattr(t, "supervisor_feedback", "") or "").replace("\n", " ").strip(),
+                getattr(t, "created_at", "") or "",
+            ])
+
+        return response
 
 
 class AdminMonthlyReportPDF(APIView):
     permission_classes = [IsAdmin]
 
     def get(self, request):
-        year = request.query_params.get("year")
-        month = request.query_params.get("month")
-        content = f"Monthly report PDF placeholder - {year}-{month}\nUse CSV export for now."
-        resp = HttpResponse(content.encode("utf-8"), content_type="application/pdf")
-        resp["Content-Disposition"] = f'attachment; filename="monthly_report_{year}_{month}.pdf"'
+        year = int(request.query_params.get("year", timezone.now().year))
+        month = int(request.query_params.get("month", timezone.now().month))
+
+        qs = Task.objects.filter(created_at__year=year, created_at__month=month).select_related("intern", "supervisor")
+
+        buffer = io.BytesIO()
+        p = canvas.Canvas(buffer, pagesize=A4)
+        width, height = A4
+
+        y = height - 50
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(50, y, f"Admin Monthly Report - {year}-{month:02d}")
+
+        y -= 20
+        p.setFont("Helvetica", 10)
+        p.drawString(50, y, f"Total Tasks: {qs.count()}")
+
+        y -= 20
+        p.setFont("Helvetica-Bold", 10)
+        p.drawString(50, y, "Task")
+        p.drawString(270, y, "Intern")
+        p.drawString(460, y, "Status")
+        y -= 8
+        p.line(50, y, 550, y)
+        y -= 16
+
+        p.setFont("Helvetica", 9)
+        for t in qs:
+            if y < 70:
+                p.showPage()
+                y = height - 50
+
+            title = (getattr(t, "title", "") or "")[:30]
+            intern = (getattr(getattr(t, "intern", None), "full_name", "") or "")[:22]
+            status_txt = (getattr(t, "status", "") or "")[:12]
+
+            p.drawString(50, y, f"#{t.id} {title}")
+            p.drawString(270, y, intern)
+            p.drawString(460, y, status_txt)
+            y -= 14
+
+        p.showPage()
+        p.save()
+
+        buffer.seek(0)
+        resp = HttpResponse(buffer.getvalue(), content_type="application/pdf")
+        resp["Content-Disposition"] = f'attachment; filename="monthly_report_{year}_{month:02d}.pdf"'
         return resp

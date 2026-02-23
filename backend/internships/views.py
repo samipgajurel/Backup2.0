@@ -1,5 +1,13 @@
+# internship/views.py
+
+import csv
+import io
 from datetime import date
+from django.db import models
 from django.db.models import Count
+from django.http import HttpResponse
+from django.utils import timezone
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -12,8 +20,14 @@ from .serializers import (
     ComplaintSerializer, ActivityLogSerializer
 )
 
+# PDF generator (ReportLab)
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+
+
 def log(actor, action):
     ActivityLog.objects.create(actor=actor, action=action)
+
 
 # ---------- ADMIN DASHBOARD (analytics) ----------
 class AdminAnalyticsView(APIView):
@@ -25,8 +39,13 @@ class AdminAnalyticsView(APIView):
         tasks_total = Task.objects.count()
         complaints_open = Complaint.objects.filter(status="OPEN").count()
 
-        # monthly task completion counts
-        monthly = Task.objects.filter(status="COMPLETED").values("created_at__year","created_at__month").annotate(c=Count("id")).order_by("created_at__year","created_at__month")
+        monthly = (
+            Task.objects
+            .filter(status="COMPLETED")
+            .values("created_at__year", "created_at__month")
+            .annotate(c=Count("id"))
+            .order_by("created_at__year", "created_at__month")
+        )
 
         return Response({
             "counts": {
@@ -38,22 +57,25 @@ class AdminAnalyticsView(APIView):
             "monthly_completed": list(monthly)
         })
 
+
 # ---------- SUPERVISOR ----------
 class SupervisorMyInternsView(APIView):
     permission_classes = [IsSupervisor]
+
     def get(self, request):
         interns = User.objects.filter(role="INTERN", intern_profile__supervisor=request.user)
         return Response([{"id": i.id, "email": i.email, "full_name": i.full_name} for i in interns])
 
+
 class SupervisorCreateTaskView(APIView):
     permission_classes = [IsSupervisor]
+
     def post(self, request):
         intern_id = request.data.get("intern")
         intern = User.objects.filter(id=intern_id, role="INTERN").first()
         if not intern:
             return Response({"detail": "Invalid intern"}, status=400)
 
-        # ensure this intern belongs to supervisor
         if intern.intern_profile.supervisor_id != request.user.id:
             return Response({"detail": "Not your intern"}, status=403)
 
@@ -63,23 +85,32 @@ class SupervisorCreateTaskView(APIView):
         log(request.user, f"Created task '{task.title}' for {intern.email}")
         return Response(TaskSerializer(task).data, status=201)
 
+
 class SupervisorTasksView(APIView):
     permission_classes = [IsSupervisor]
+
     def get(self, request):
         tasks = Task.objects.filter(supervisor=request.user).order_by("-created_at")
         return Response(TaskSerializer(tasks, many=True).data)
 
+
 class SupervisorRateTaskView(APIView):
     permission_classes = [IsSupervisor]
+
     def post(self, request, task_id):
         task = Task.objects.filter(id=task_id, supervisor=request.user).first()
         if not task:
-            return Response({"detail":"Not found"}, status=404)
+            return Response({"detail": "Not found"}, status=404)
 
         rating = int(request.data.get("star_rating", 0))
-        feedback = request.data.get("supervisor_feedback","")
+        feedback = request.data.get("supervisor_feedback", "")
+
         if rating < 1 or rating > 5:
-            return Response({"detail":"Rating must be 1-5"}, status=400)
+            return Response({"detail": "Rating must be 1-5"}, status=400)
+
+        # ✅ lock if already rated (optional; remove if you want overwrite)
+        if task.star_rating:
+            return Response({"detail": "Rating already submitted. Locked."}, status=400)
 
         task.star_rating = rating
         task.supervisor_feedback = feedback
@@ -87,44 +118,52 @@ class SupervisorRateTaskView(APIView):
         log(request.user, f"Rated task '{task.title}' ({rating} stars)")
         return Response(TaskSerializer(task).data)
 
+
 class SupervisorInternAttendanceView(APIView):
     permission_classes = [IsSupervisor]
+
     def get(self, request, intern_id):
         intern = User.objects.filter(id=intern_id, role="INTERN").first()
         if not intern or intern.intern_profile.supervisor_id != request.user.id:
-            return Response({"detail":"Not allowed"}, status=403)
+            return Response({"detail": "Not allowed"}, status=403)
         att = Attendance.objects.filter(intern=intern).order_by("-date")[:60]
         return Response(AttendanceSerializer(att, many=True).data)
+
 
 # ---------- INTERN ----------
 class InternMyTasksView(APIView):
     permission_classes = [IsIntern]
+
     def get(self, request):
         tasks = Task.objects.filter(intern=request.user).order_by("-created_at")
         return Response(TaskSerializer(tasks, many=True).data)
 
+
 class InternUpdateTaskStatusView(APIView):
     permission_classes = [IsIntern]
+
     def post(self, request, task_id):
         task = Task.objects.filter(id=task_id, intern=request.user).first()
         if not task:
-            return Response({"detail":"Not found"}, status=404)
+            return Response({"detail": "Not found"}, status=404)
 
         status_value = request.data.get("status")
-        if status_value not in ["TODO","IN_PROGRESS","COMPLETED"]:
-            return Response({"detail":"Invalid status"}, status=400)
+        if status_value not in ["TODO", "IN_PROGRESS", "COMPLETED"]:
+            return Response({"detail": "Invalid status"}, status=400)
 
         task.status = status_value
         task.save()
         log(request.user, f"Updated task '{task.title}' status to {status_value}")
         return Response(TaskSerializer(task).data)
 
+
 class InternCreateReportView(APIView):
     permission_classes = [IsIntern]
+
     def post(self, request, task_id):
         task = Task.objects.filter(id=task_id, intern=request.user).first()
         if not task:
-            return Response({"detail":"Not found"}, status=404)
+            return Response({"detail": "Not found"}, status=404)
 
         ser = TaskReportSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
@@ -132,14 +171,15 @@ class InternCreateReportView(APIView):
         log(request.user, f"Submitted report for task '{task.title}'")
         return Response(TaskReportSerializer(report).data, status=201)
 
+
 class InternMarkAttendanceView(APIView):
     permission_classes = [IsIntern]
+
     def post(self, request):
-        # One per day
         today = date.today()
         in_office = bool(request.data.get("in_office", False))
-        office_location = request.data.get("office_location","Codavatar Tech Office")
-        intern_location = request.data.get("intern_location","")
+        office_location = request.data.get("office_location", "Codavatar Tech Office")
+        intern_location = request.data.get("intern_location", "")
 
         obj, created = Attendance.objects.get_or_create(
             intern=request.user, date=today,
@@ -158,16 +198,20 @@ class InternMarkAttendanceView(APIView):
         log(request.user, f"Marked attendance (in_office={in_office})")
         return Response(AttendanceSerializer(obj).data)
 
+
 class InternMySupervisorView(APIView):
     permission_classes = [IsIntern]
+
     def get(self, request):
         sup = request.user.intern_profile.supervisor
         if not sup:
-            return Response({"detail":"No supervisor assigned"}, status=200)
+            return Response({"detail": "No supervisor assigned"}, status=200)
         return Response({"id": sup.id, "email": sup.email, "full_name": sup.full_name})
+
 
 class InternComplaintView(APIView):
     permission_classes = [IsIntern]
+
     def post(self, request):
         ser = ComplaintSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
@@ -180,30 +224,138 @@ class InternComplaintView(APIView):
         qs = Complaint.objects.filter(intern=request.user).order_by("-created_at")
         return Response(ComplaintSerializer(qs, many=True).data)
 
+
 # ---------- Supervisor: complaints ----------
 class SupervisorComplaintListView(APIView):
     permission_classes = [IsSupervisor]
+
     def get(self, request):
         qs = Complaint.objects.filter(supervisor=request.user).order_by("-created_at")
         return Response(ComplaintSerializer(qs, many=True).data)
 
+
 class SupervisorUpdateComplaintStatusView(APIView):
     permission_classes = [IsSupervisor]
+
     def post(self, request, complaint_id):
         c = Complaint.objects.filter(id=complaint_id, supervisor=request.user).first()
         if not c:
-            return Response({"detail":"Not found"}, status=404)
+            return Response({"detail": "Not found"}, status=404)
         status_value = request.data.get("status")
-        if status_value not in ["OPEN","IN_REVIEW","RESOLVED"]:
-            return Response({"detail":"Invalid status"}, status=400)
+        if status_value not in ["OPEN", "IN_REVIEW", "RESOLVED"]:
+            return Response({"detail": "Invalid status"}, status=400)
         c.status = status_value
         c.save()
         log(request.user, f"Updated complaint '{c.subject}' to {status_value}")
         return Response(ComplaintSerializer(c).data)
 
+
 # ---------- Admin: activity logs ----------
 class AdminActivityLogView(APIView):
     permission_classes = [IsAdmin]
+
     def get(self, request):
         logs = ActivityLog.objects.all().order_by("-created_at")[:200]
         return Response(ActivityLogSerializer(logs, many=True).data)
+
+
+# ============================================================
+# ✅ NEW: ADMIN MONTHLY EXPORTS (CSV/PDF)
+# Endpoints:
+#   /api/internships/admin/reports/monthly/csv/?year=2026&month=2
+#   /api/internships/admin/reports/monthly/pdf/?year=2026&month=2
+# ============================================================
+
+class AdminMonthlyReportCSVView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        year = int(request.query_params.get("year", timezone.now().year))
+        month = int(request.query_params.get("month", timezone.now().month))
+
+        tasks_qs = Task.objects.filter(created_at__year=year, created_at__month=month)
+
+        per_intern = (
+            tasks_qs.values("intern__full_name", "intern__email")
+            .annotate(
+                tasks_total=Count("id"),
+                completed=Count("id", filter=models.Q(status="COMPLETED")),
+            )
+            .order_by("intern__full_name")
+        )
+
+        resp = HttpResponse(content_type="text/csv")
+        resp["Content-Disposition"] = f'attachment; filename="monthly_report_{year}_{month}.csv"'
+
+        writer = csv.writer(resp)
+        writer.writerow(["Intern Name", "Intern Email", "Tasks Total", "Completed"])
+
+        for row in per_intern:
+            writer.writerow([
+                row["intern__full_name"] or "-",
+                row["intern__email"] or "-",
+                row["tasks_total"],
+                row["completed"],
+            ])
+
+        return resp
+
+
+class AdminMonthlyReportPDFView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        year = int(request.query_params.get("year", timezone.now().year))
+        month = int(request.query_params.get("month", timezone.now().month))
+
+        tasks_qs = Task.objects.filter(created_at__year=year, created_at__month=month)
+
+        per_intern = (
+            tasks_qs.values("intern__full_name", "intern__email")
+            .annotate(
+                tasks_total=Count("id"),
+                completed=Count("id", filter=models.Q(status="COMPLETED")),
+            )
+            .order_by("intern__full_name")
+        )
+
+        buffer = io.BytesIO()
+        p = canvas.Canvas(buffer, pagesize=A4)
+        width, height = A4
+
+        y = height - 50
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(50, y, f"Monthly Report (Admin) - {year}-{month:02d}")
+
+        y -= 28
+        p.setFont("Helvetica", 10)
+        p.drawString(50, y, "Intern Name")
+        p.drawString(260, y, "Email")
+        p.drawString(470, y, "Done/Total")
+        y -= 10
+        p.line(50, y, 545, y)
+        y -= 18
+
+        for row in per_intern:
+            if y < 70:
+                p.showPage()
+                y = height - 50
+
+            name = (row["intern__full_name"] or "-")[:28]
+            email = (row["intern__email"] or "-")[:30]
+            done = row["completed"]
+            total = row["tasks_total"]
+
+            p.setFont("Helvetica", 10)
+            p.drawString(50, y, name)
+            p.drawString(260, y, email)
+            p.drawString(480, y, f"{done}/{total}")
+            y -= 16
+
+        p.showPage()
+        p.save()
+
+        buffer.seek(0)
+        resp = HttpResponse(buffer.getvalue(), content_type="application/pdf")
+        resp["Content-Disposition"] = f'attachment; filename="monthly_report_{year}_{month}.pdf"'
+        return resp
