@@ -1,75 +1,107 @@
 // frontend/js/api.js
 
-const API_BASE = (window.API_BASE || "http://127.0.0.1:8000/api").replace(/\/+$/,"");
+/**
+ * Dokploy "single-domain" setup:
+ * - Frontend served by Nginx at:  https://yourdomain.com/
+ * - Backend proxied by Nginx at:   https://yourdomain.com/api/  -> http://backend:8000/
+ *
+ * So API_BASE should be "/api" in production.
+ * If you ever want to use a separate API domain, you can set:
+ *   window.API_BASE = "https://api.yourdomain.com/api"
+ * before this script loads.
+ */
 
-function apiUrl(path){
-  if(!path.startsWith("/")) path = "/" + path;
+// Prefer runtime override if provided, otherwise default to "/api"
+const DEFAULT_API_BASE = "/api";
+const API_BASE = (window.API_BASE || DEFAULT_API_BASE).replace(/\/+$/, "");
+
+// Build final URL safely
+function apiUrl(path) {
+  if (!path) path = "/";
+  if (!path.startsWith("/")) path = "/" + path;
+
+  // If API_BASE is absolute (https://...), join normally
+  // If API_BASE is relative (/api), still works
   return API_BASE + path;
 }
 
-function getAccess(){
-  let t = localStorage.getItem("access") || "";
-  t = t.replace(/^Bearer\s+/i, "").trim();
+function normalizeToken(raw) {
+  let t = raw || "";
+  t = String(t).replace(/^Bearer\s+/i, "").trim();
+
   // remove accidental quotes
-  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+  if (
+    (t.startsWith('"') && t.endsWith('"')) ||
+    (t.startsWith("'") && t.endsWith("'"))
+  ) {
     t = t.slice(1, -1).trim();
   }
   return t;
 }
 
-function getRefresh(){
-  let t = localStorage.getItem("refresh") || "";
-  t = t.replace(/^Bearer\s+/i, "").trim();
-  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
-    t = t.slice(1, -1).trim();
-  }
-  return t;
+function getAccess() {
+  return normalizeToken(localStorage.getItem("access") || "");
 }
 
-async function refreshAccessToken(){
+function getRefresh() {
+  return normalizeToken(localStorage.getItem("refresh") || "");
+}
+
+async function refreshAccessToken() {
   const refresh = getRefresh();
-  if(!refresh) return false;
+  if (!refresh) return false;
 
   const res = await fetch(apiUrl("/token/refresh/"), {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Accept": "application/json" },
-    body: JSON.stringify({ refresh })
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+    },
+    body: JSON.stringify({ refresh }),
   });
 
-  if(!res.ok) return false;
+  if (!res.ok) return false;
 
-  const data = await res.json().catch(()=>null);
-  if(!data?.access) return false;
+  const data = await res.json().catch(() => null);
+  if (!data || !data.access) return false;
 
   localStorage.setItem("access", data.access);
   return true;
 }
 
-async function apiFetch(path, options = {}){
+async function apiFetch(path, options = {}) {
   let access = getAccess();
 
+  // Use Headers object so we can mutate safely
   const headers = new Headers(options.headers || {});
   headers.set("Accept", headers.get("Accept") || "application/json");
 
-  // JSON body support
+  // Auto-set JSON if string body is provided
   if (options.body && typeof options.body === "string" && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
+  // Attach token if available and not already set
   if (access && !headers.has("Authorization")) {
     headers.set("Authorization", "Bearer " + access);
   }
 
   let res = await fetch(apiUrl(path), { ...options, headers });
 
-  // ✅ if access expired/invalid -> try refresh once
+  // If access expired/invalid -> try refresh once, then retry
   if (res.status === 401) {
-    const cloned = await res.clone().text().catch(()=> "");
-    if (cloned.includes("token_not_valid") || cloned.includes("Given token not valid")) {
+    const clonedText = await res.clone().text().catch(() => "");
+    const tokenInvalid =
+      clonedText.includes("token_not_valid") ||
+      clonedText.includes("Given token not valid") ||
+      clonedText.includes("token is invalid") ||
+      clonedText.includes("Token is invalid");
+
+    if (tokenInvalid) {
       const ok = await refreshAccessToken();
       if (ok) {
         access = getAccess();
-        headers.set("Authorization", "Bearer " + access);
+        if (access) headers.set("Authorization", "Bearer " + access);
         res = await fetch(apiUrl(path), { ...options, headers });
       }
     }
@@ -78,13 +110,15 @@ async function apiFetch(path, options = {}){
   return res;
 }
 
-// ✅ Download helper for CSV/PDF (works with JWT + refresh)
-async function apiDownload(path, filename){
-  // use apiFetch so refresh logic works
-  const res = await apiFetch(path, { method: "GET", headers: { "Accept": "*/*" } });
+// Download helper for CSV/PDF (works with JWT + refresh)
+async function apiDownload(path, filename) {
+  const res = await apiFetch(path, {
+    method: "GET",
+    headers: { "Accept": "*/*" },
+  });
 
-  if(!res.ok){
-    const text = await res.text().catch(()=> "");
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
     throw new Error(`Download failed ${res.status}: ${text}`);
   }
 
@@ -97,10 +131,12 @@ async function apiDownload(path, filename){
   document.body.appendChild(a);
   a.click();
   a.remove();
+
   URL.revokeObjectURL(url);
   return true;
 }
 
+// expose globally (your HTML uses apiFetch directly)
 window.apiFetch = apiFetch;
 window.apiDownload = apiDownload;
 window.API_BASE = API_BASE;
